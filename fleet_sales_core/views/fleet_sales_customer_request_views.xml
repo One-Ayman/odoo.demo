@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_fleet_sales_customer_request_list" model="ir.ui.view">
+        <field name="name">fleet.sales.customer.request.list</field>
+        <field name="model">fleet.sales.customer.request</field>
+        <field name="arch" type="xml">
+            <list string="New Customer Requests">
+                <field name="name"/>
+                <field name="vat"/>
+                <field name="requested_by"/>
+                <field name="sector_id"/>
+                <field name="region_id"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'approved'"
+                       decoration-danger="state == 'rejected'"
+                       decoration-info="state == 'submitted'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_fleet_sales_customer_request_form" model="ir.ui.view">
+        <field name="name">fleet.sales.customer.request.form</field>
+        <field name="model">fleet.sales.customer.request</field>
+        <field name="arch" type="xml">
+            <form string="New Customer Request">
+                <header>
+                    <button name="action_submit" type="object" string="Submit"
+                            class="oe_highlight" invisible="state != 'draft'"/>
+                    <button name="action_approve" type="object" string="Approve"
+                            class="oe_highlight" invisible="state != 'submitted'"
+                            groups="fleet_sales_core.group_fleet_sales_supervisor"/>
+                    <button name="action_reject" type="object" string="Reject"
+                            invisible="state != 'submitted'"
+                            groups="fleet_sales_core.group_fleet_sales_supervisor"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,submitted,approved"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_created_partner" type="object"
+                                class="oe_stat_button" icon="fa-user"
+                                invisible="not created_partner_id">
+                            <div class="o_stat_info">
+                                <span class="o_stat_text">Customer</span>
+                            </div>
+                        </button>
+                    </div>
+                    <div class="alert alert-warning" role="alert" invisible="not duplicate_warning">
+                        <field name="duplicate_warning" readonly="1"/>
+                    </div>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. Al Rawabi Grocery" readonly="state != 'draft'"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="vat" readonly="state != 'draft'"/>
+                            <field name="mobile" readonly="state != 'draft'"/>
+                            <field name="commercial_registration" readonly="state != 'draft'"/>
+                        </group>
+                        <group>
+                            <field name="sector_id" readonly="state != 'draft'"/>
+                            <field name="region_id" readonly="state != 'draft'"/>
+                            <field name="proposed_salesman_id" readonly="state != 'draft'"/>
+                        </group>
+                    </group>
+                    <group string="Decision" invisible="state not in ('approved', 'rejected')">
+                        <field name="approver_id" readonly="1"/>
+                        <field name="decision_date" readonly="1"/>
+                        <field name="reason" readonly="1"/>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_fleet_sales_customer_request" model="ir.actions.act_window">
+        <field name="name">New Customer Requests</field>
+        <field name="res_model">fleet.sales.customer.request</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Submit a new customer request</p>
+        </field>
+    </record>
+</odoo>
