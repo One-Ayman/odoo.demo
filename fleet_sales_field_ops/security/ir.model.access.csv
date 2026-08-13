@@ -1,5 +1,0 @@
-id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_fleet_sales_visit_salesman,fleet.sales.visit.salesman,model_fleet_sales_visit,fleet_sales_core.group_fleet_sales_salesman,1,1,1,0
-access_fleet_sales_visit_supervisor,fleet.sales.visit.supervisor,model_fleet_sales_visit,fleet_sales_core.group_fleet_sales_supervisor,1,1,1,0
-access_fleet_sales_visit_finance,fleet.sales.visit.finance,model_fleet_sales_visit,fleet_sales_core.group_fleet_sales_finance,1,0,0,0
-access_fleet_sales_visit_gm,fleet.sales.visit.gm,model_fleet_sales_visit,fleet_sales_core.group_fleet_sales_general_manager,1,1,1,1
