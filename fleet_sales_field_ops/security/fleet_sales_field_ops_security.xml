@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- No new groups: Field Operations reuses the Salesman -> Supervisor
+         -> Regional Manager -> Finance -> General Manager hierarchy
+         already defined by fleet_sales_core. Only record rules are added
+         here, mirroring the pattern used for New Customer / POS Requests
+         in fleet_sales_core/security/fleet_sales_record_rules.xml. -->
+
+    <!-- Multi-company: applies to every user regardless of group -->
+    <record id="rule_visit_company" model="ir.rule">
+        <field name="name">Visit: multi-company</field>
+        <field name="model_id" ref="model_fleet_sales_visit"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+
+    <!-- Salesman: only their own visits -->
+    <record id="rule_visit_salesman" model="ir.rule">
+        <field name="name">Visit: own visits only</field>
+        <field name="model_id" ref="model_fleet_sales_visit"/>
+        <field name="domain_force">[('salesman_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('fleet_sales_core.group_fleet_sales_salesman'))]"/>
+    </record>
+
+    <!-- Supervisor: visits from their direct team -->
+    <record id="rule_visit_supervisor" model="ir.rule">
+        <field name="name">Visit: team visits</field>
+        <field name="model_id" ref="model_fleet_sales_visit"/>
+        <field name="domain_force">[('salesman_id.supervisor_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('fleet_sales_core.group_fleet_sales_supervisor'))]"/>
+    </record>
+
+    <!-- Regional Manager: visits from anyone in their region -->
+    <record id="rule_visit_regional" model="ir.rule">
+        <field name="name">Visit: region visits</field>
+        <field name="model_id" ref="model_fleet_sales_visit"/>
+        <field name="domain_force">[('salesman_id.region_id', '=', user.region_id.id)]</field>
+        <field name="groups" eval="[(4, ref('fleet_sales_core.group_fleet_sales_regional_manager'))]"/>
+    </record>
+
+    <!-- Finance: read access to every visit (needed to review Mada vouchers) -->
+    <record id="rule_visit_finance" model="ir.rule">
+        <field name="name">Visit: finance sees all</field>
+        <field name="model_id" ref="model_fleet_sales_visit"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('fleet_sales_core.group_fleet_sales_finance'))]"/>
+    </record>
+
+    <!-- General Manager: everything -->
+    <record id="rule_visit_gm" model="ir.rule">
+        <field name="name">Visit: all visits</field>
+        <field name="model_id" ref="model_fleet_sales_visit"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('fleet_sales_core.group_fleet_sales_general_manager'))]"/>
+    </record>
+</odoo>
