@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_fleet_sales_visit_report_wizard_form" model="ir.ui.view">
+        <field name="name">fleet.sales.visit.report.wizard.form</field>
+        <field name="model">fleet.sales.visit.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Visit Report">
+                <group>
+                    <field name="salesman_id"/>
+                    <field name="date_from"/>
+                    <field name="date_to"/>
+                </group>
+                <footer>
+                    <button name="action_view_report" type="object"
+                            string="View Report" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_fleet_sales_visit_report_wizard" model="ir.actions.act_window">
+        <field name="name">Visit Report</field>
+        <field name="res_model">fleet.sales.visit.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="view_fleet_sales_visit_report_list" model="ir.ui.view">
+        <field name="name">fleet.sales.visit.report.list</field>
+        <field name="model">fleet.sales.visit</field>
+        <field name="arch" type="xml">
+            <list string="Visit Report" create="0" edit="0" delete="0" default_order="check_in_datetime">
+                <field name="check_in_datetime" string="Date"/>
+                <field name="partner_id" string="Customer"/>
+                <field name="is_successful" string="Successful" widget="boolean_toggle"/>
+                <field name="sale_display" string="Sales"/>
+                <field name="collected_display" string="Collection"/>
+            </list>
+        </field>
+    </record>
+
+</odoo>
