@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- ================================================================
+             Setup: every salesman from fleet_sales_core's demo data gets a
+             Field Warehouse and their own Cash Journal, and the company
+             gets a Mada/card journal, so the field-ops flow works out of
+             the box for a demo — no manual configuration needed first.
+             ================================================================ -->
+
+        <record id="demo_cash_journal_salesman_1" model="account.journal">
+            <field name="name">Field Cash - Omar Al-Shammari</field>
+            <field name="type">cash</field>
+            <field name="code">FSC1</field>
+            <field name="company_id" ref="base.main_company"/>
+        </record>
+        <record id="demo_cash_journal_salesman_2" model="account.journal">
+            <field name="name">Field Cash - Yousef Al-Dosari</field>
+            <field name="type">cash</field>
+            <field name="code">FSC2</field>
+            <field name="company_id" ref="base.main_company"/>
+        </record>
+        <record id="demo_cash_journal_salesman_western" model="account.journal">
+            <field name="name">Field Cash - Faris Al-Qahtani</field>
+            <field name="type">cash</field>
+            <field name="code">FSC3</field>
+            <field name="company_id" ref="base.main_company"/>
+        </record>
+        <record id="demo_mada_journal" model="account.journal">
+            <field name="name">Mada Collections</field>
+            <field name="type">bank</field>
+            <field name="code">MADA</field>
+            <field name="company_id" ref="base.main_company"/>
+        </record>
+
+        <record id="fleet_sales_core.demo_user_salesman_1" model="res.users">
+            <field name="warehouse_id" ref="stock.warehouse0"/>
+            <field name="cash_journal_id" ref="demo_cash_journal_salesman_1"/>
+        </record>
+        <record id="fleet_sales_core.demo_user_salesman_2" model="res.users">
+            <field name="warehouse_id" ref="stock.warehouse0"/>
+            <field name="cash_journal_id" ref="demo_cash_journal_salesman_2"/>
+        </record>
+        <record id="fleet_sales_core.demo_user_salesman_western" model="res.users">
+            <field name="warehouse_id" ref="stock.warehouse0"/>
+            <field name="cash_journal_id" ref="demo_cash_journal_salesman_western"/>
+        </record>
+
+        <record id="base.main_company" model="res.company">
+            <field name="fleet_sales_mada_journal_id" ref="demo_mada_journal"/>
+        </record>
+
+        <!-- ================================================================
+             Products the field team sells, with opening stock in the main
+             warehouse so the "successful via sale" demo visit below can
+             actually confirm without needing Allow Negative Stock.
+             ================================================================ -->
+
+        <record id="demo_product_soft_drinks" model="product.product">
+            <field name="name">Soft Drink Case (24 x 330ml)</field>
+            <field name="type">consu</field>
+            <field name="is_storable">True</field>
+            <field name="list_price">45.00</field>
+        </record>
+        <record id="demo_product_water" model="product.product">
+            <field name="name">Bottled Water Pack (12 x 500ml)</field>
+            <field name="type">consu</field>
+            <field name="is_storable">True</field>
+            <field name="list_price">18.00</field>
+        </record>
+        <record id="demo_product_snacks" model="product.product">
+            <field name="name">Snack Box Assorted</field>
+            <field name="type">consu</field>
+            <field name="is_storable">True</field>
+            <field name="list_price">32.00</field>
+        </record>
+
+        <record id="demo_quant_soft_drinks" model="stock.quant">
+            <field name="product_id" ref="demo_product_soft_drinks"/>
+            <field name="location_id" ref="stock.stock_location_stock"/>
+            <field name="quantity">500</field>
+        </record>
+        <record id="demo_quant_water" model="stock.quant">
+            <field name="product_id" ref="demo_product_water"/>
+            <field name="location_id" ref="stock.stock_location_stock"/>
+            <field name="quantity">500</field>
+        </record>
+        <record id="demo_quant_snacks" model="stock.quant">
+            <field name="product_id" ref="demo_product_snacks"/>
+            <field name="location_id" ref="stock.stock_location_stock"/>
+            <field name="quantity">300</field>
+        </record>
+
+        <!-- ================================================================
+             Customers (POS locations) with real coordinates, for the
+             geofence check-in demo.
+             ================================================================ -->
+
+        <record id="demo_customer_pos_1" model="res.partner">
+            <field name="name">Al Rawabi Grocery - Malaz Branch</field>
+            <field name="is_company" eval="True"/>
+            <field name="is_pos_location" eval="True"/>
+            <field name="vat">300012345600003</field>
+            <field name="mobile">0501234567</field>
+            <field name="sector_id" ref="fleet_sales_core.demo_sector_grocery"/>
+            <field name="region_id" ref="fleet_sales_core.demo_region_central"/>
+            <field name="salesman_id" ref="fleet_sales_core.demo_user_salesman_1"/>
+            <field name="partner_latitude">24.6890</field>
+            <field name="partner_longitude">46.7219</field>
+            <field name="visit_geofence_radius">200</field>
+        </record>
+
+        <record id="demo_customer_pos_2" model="res.partner">
+            <field name="name">Al Waha Mini Market - Naseem Branch</field>
+            <field name="is_company" eval="True"/>
+            <field name="is_pos_location" eval="True"/>
+            <field name="vat">300098765400003</field>
+            <field name="mobile">0559876543</field>
+            <field name="sector_id" ref="fleet_sales_core.demo_sector_convenience"/>
+            <field name="region_id" ref="fleet_sales_core.demo_region_central"/>
+            <field name="salesman_id" ref="fleet_sales_core.demo_user_salesman_2"/>
+            <field name="partner_latitude">24.6408</field>
+            <field name="partner_longitude">46.7728</field>
+            <field name="visit_geofence_radius">200</field>
+        </record>
+
+        <record id="demo_customer_pos_3" model="res.partner">
+            <field name="name">Al Fanar - Downtown Kiosk</field>
+            <field name="is_company" eval="True"/>
+            <field name="is_pos_location" eval="True"/>
+            <field name="vat">300055566600003</field>
+            <field name="mobile">0512223344</field>
+            <field name="sector_id" ref="fleet_sales_core.demo_sector_horeca"/>
+            <field name="region_id" ref="fleet_sales_core.demo_region_central"/>
+            <field name="salesman_id" ref="fleet_sales_core.demo_user_salesman_1"/>
+            <field name="partner_latitude">24.7136</field>
+            <field name="partner_longitude">46.6753</field>
+            <field name="visit_geofence_radius">200</field>
+        </record>
+
+        <record id="demo_customer_pos_western" model="res.partner">
+            <field name="name">Jeddah Fresh Mart - Corniche Branch</field>
+            <field name="is_company" eval="True"/>
+            <field name="is_pos_location" eval="True"/>
+            <field name="vat">300077788800003</field>
+            <field name="mobile">0533445566</field>
+            <field name="sector_id" ref="fleet_sales_core.demo_sector_grocery"/>
+            <field name="region_id" ref="fleet_sales_core.demo_region_western"/>
+            <field name="salesman_id" ref="fleet_sales_core.demo_user_salesman_western"/>
+            <field name="partner_latitude">21.5433</field>
+            <field name="partner_longitude">39.1728</field>
+            <field name="visit_geofence_radius">200</field>
+        </record>
+
+        <!-- ================================================================
+             Visit 1: checked in close to the customer, an order placed and
+             confirmed — a "successful via sale" example, plus a couple of
+             Customer On-Hand Inventory lines.
+             ================================================================ -->
+
+        <record id="demo_visit_1" model="fleet.sales.visit">
+            <field name="partner_id" ref="demo_customer_pos_1"/>
+            <field name="salesman_id" ref="fleet_sales_core.demo_user_salesman_1"/>
+            <field name="state">checked_in</field>
+            <field name="check_in_datetime"
+                   eval="(DateTime.today() - relativedelta(days=2)).strftime('%Y-%m-%d 09:15:00')"/>
+            <field name="check_in_latitude">24.6891</field>
+            <field name="check_in_longitude">46.7220</field>
+        </record>
+
+        <record id="demo_visit_1_order" model="sale.order">
+            <field name="partner_id" ref="demo_customer_pos_1"/>
+            <field name="user_id" ref="fleet_sales_core.demo_user_salesman_1"/>
+            <field name="warehouse_id" ref="stock.warehouse0"/>
+            <field name="visit_id" ref="demo_visit_1"/>
+        </record>
+        <record id="demo_visit_1_order_line_1" model="sale.order.line">
+            <field name="order_id" ref="demo_visit_1_order"/>
+            <field name="product_id" ref="demo_product_soft_drinks"/>
+            <field name="product_uom_qty">10</field>
+        </record>
+        <record id="demo_visit_1_order_line_2" model="sale.order.line">
+            <field name="order_id" ref="demo_visit_1_order"/>
+            <field name="product_id" ref="demo_product_water"/>
+            <field name="product_uom_qty">15</field>
+        </record>
+        <function model="sale.order" name="action_confirm"
+                   eval="[[ref('demo_visit_1_order')]]"/>
+
+        <record id="demo_visit_1" model="fleet.sales.visit">
+            <field name="state">closed</field>
+            <field name="sale_order_id" ref="demo_visit_1_order"/>
+        </record>
+        <record id="demo_visit_1_stock_line_1" model="fleet.sales.visit.customer.stock.line">
+            <field name="visit_id" ref="demo_visit_1"/>
+            <field name="product_id" ref="demo_product_snacks"/>
+            <field name="quantity">12</field>
+        </record>
+        <record id="demo_visit_1_stock_line_2" model="fleet.sales.visit.customer.stock.line">
+            <field name="visit_id" ref="demo_visit_1"/>
+            <field name="product_id" ref="demo_product_water"/>
+            <field name="quantity">4</field>
+        </record>
+
+        <!-- ================================================================
+             Visit 2: no sale, but a cash collection — a "successful via
+             collection only" example.
+             ================================================================ -->
+
+        <record id="demo_visit_2" model="fleet.sales.visit">
+            <field name="partner_id" ref="demo_customer_pos_2"/>
+            <field name="salesman_id" ref="fleet_sales_core.demo_user_salesman_2"/>
+            <field name="state">closed</field>
+            <field name="check_in_datetime"
+                   eval="(DateTime.today() - relativedelta(days=1)).strftime('%Y-%m-%d 11:40:00')"/>
+            <field name="check_in_latitude">24.6409</field>
+            <field name="check_in_longitude">46.7729</field>
+        </record>
+        <record id="demo_visit_2_payment" model="account.payment">
+            <field name="payment_type">inbound</field>
+            <field name="partner_type">customer</field>
+            <field name="partner_id" ref="demo_customer_pos_2"/>
+            <field name="amount">275.50</field>
+            <field name="journal_id" ref="demo_cash_journal_salesman_2"/>
+            <field name="visit_id" ref="demo_visit_2"/>
+            <field name="memo">Outstanding balance collection - Al Waha Mini Market</field>
+        </record>
+        <function model="account.payment" name="action_post"
+                   eval="[[ref('demo_visit_2_payment')]]"/>
+
+        <!-- ================================================================
+             Visit 3: checked in, closed manually — no sale, no
+             collection. An "unsuccessful" example for the report.
+             ================================================================ -->
+
+        <record id="demo_visit_3" model="fleet.sales.visit">
+            <field name="partner_id" ref="demo_customer_pos_3"/>
+            <field name="salesman_id" ref="fleet_sales_core.demo_user_salesman_1"/>
+            <field name="state">closed</field>
+            <field name="check_in_datetime"
+                   eval="(DateTime.today() - relativedelta(days=1)).strftime('%Y-%m-%d 15:05:00')"/>
+            <field name="check_in_latitude">24.7137</field>
+            <field name="check_in_longitude">46.6754</field>
+        </record>
+
+        <!-- ================================================================
+             Visit 4: still open (Checked In), in the Western region — to
+             show a live, in-progress visit during a demo.
+             ================================================================ -->
+
+        <record id="demo_visit_4" model="fleet.sales.visit">
+            <field name="partner_id" ref="demo_customer_pos_western"/>
+            <field name="salesman_id" ref="fleet_sales_core.demo_user_salesman_western"/>
+            <field name="state">checked_in</field>
+            <field name="check_in_datetime"
+                   eval="DateTime.today().strftime('%Y-%m-%d 10:20:00')"/>
+            <field name="check_in_latitude">21.5434</field>
+            <field name="check_in_longitude">39.1729</field>
+        </record>
+
+    </data>
+</odoo>
