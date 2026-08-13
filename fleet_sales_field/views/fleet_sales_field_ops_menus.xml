@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_fleet_sales_visit"
+              name="Visits"
+              parent="fleet_sales_core.menu_fleet_sales_root"
+              action="action_fleet_sales_visit"
+              sequence="5"/>
+
+    <menuitem id="menu_fleet_sales_visit_report"
+              name="Visit Report"
+              parent="fleet_sales_core.menu_fleet_sales_root"
+              action="action_fleet_sales_visit_report"
+              groups="fleet_sales_core.group_fleet_sales_supervisor"
+              sequence="30"/>
+</odoo>
