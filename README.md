@@ -1,1 +1,1 @@
-# odoo.demo
+# demo_odoo

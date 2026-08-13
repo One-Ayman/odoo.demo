@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_users_form_fleet_sales" model="ir.ui.view">
+        <field name="name">res.users.form.fleet.sales</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <page name="access_rights" position="after">
+                <page name="fleet_sales" string="Field Sales">
+                    <group>
+                        <group>
+                            <field name="supervisor_id"/>
+                        </group>
+                        <group>
+                            <field name="region_id"/>
+                        </group>
+                    </group>
+                </page>
+            </page>
+        </field>
+    </record>
+</odoo>
