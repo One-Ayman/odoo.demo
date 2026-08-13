@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Multi-company: applies to every user regardless of group -->
+    <record id="rule_customer_request_company" model="ir.rule">
+        <field name="name">Customer Request: multi-company</field>
+        <field name="model_id" ref="model_fleet_sales_customer_request"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_pos_request_company" model="ir.rule">
+        <field name="name">POS Request: multi-company</field>
+        <field name="model_id" ref="model_fleet_sales_pos_request"/>
+        <field name="domain_force">[('customer_id.company_id', 'in', company_ids + [False])]</field>
+    </record>
+
+    <!-- Salesman: only requests they submitted themselves -->
+    <record id="rule_customer_request_salesman" model="ir.rule">
+        <field name="name">Customer Request: own requests only</field>
+        <field name="model_id" ref="model_fleet_sales_customer_request"/>
+        <field name="domain_force">[('requested_by', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_fleet_sales_salesman'))]"/>
+    </record>
+    <record id="rule_pos_request_salesman" model="ir.rule">
+        <field name="name">POS Request: own requests only</field>
+        <field name="model_id" ref="model_fleet_sales_pos_request"/>
+        <field name="domain_force">[('requested_by', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_fleet_sales_salesman'))]"/>
+    </record>
+
+    <!-- Supervisor: requests submitted by their direct team -->
+    <record id="rule_customer_request_supervisor" model="ir.rule">
+        <field name="name">Customer Request: team requests</field>
+        <field name="model_id" ref="model_fleet_sales_customer_request"/>
+        <field name="domain_force">[('requested_by.supervisor_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_fleet_sales_supervisor'))]"/>
+    </record>
+    <record id="rule_pos_request_supervisor" model="ir.rule">
+        <field name="name">POS Request: team requests</field>
+        <field name="model_id" ref="model_fleet_sales_pos_request"/>
+        <field name="domain_force">[('requested_by.supervisor_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_fleet_sales_supervisor'))]"/>
+    </record>
+
+    <!-- Regional Manager: requests from anyone in their region -->
+    <record id="rule_customer_request_regional" model="ir.rule">
+        <field name="name">Customer Request: region requests</field>
+        <field name="model_id" ref="model_fleet_sales_customer_request"/>
+        <field name="domain_force">[('requested_by.region_id', '=', user.region_id.id)]</field>
+        <field name="groups" eval="[(4, ref('group_fleet_sales_regional_manager'))]"/>
+    </record>
+    <record id="rule_pos_request_regional" model="ir.rule">
+        <field name="name">POS Request: region requests</field>
+        <field name="model_id" ref="model_fleet_sales_pos_request"/>
+        <field name="domain_force">[('requested_by.region_id', '=', user.region_id.id)]</field>
+        <field name="groups" eval="[(4, ref('group_fleet_sales_regional_manager'))]"/>
+    </record>
+
+    <!-- General Manager: everything -->
+    <record id="rule_customer_request_gm" model="ir.rule">
+        <field name="name">Customer Request: all requests</field>
+        <field name="model_id" ref="model_fleet_sales_customer_request"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_fleet_sales_general_manager'))]"/>
+    </record>
+    <record id="rule_pos_request_gm" model="ir.rule">
+        <field name="name">POS Request: all requests</field>
+        <field name="model_id" ref="model_fleet_sales_pos_request"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_fleet_sales_general_manager'))]"/>
+    </record>
+</odoo>

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="module_category_fleet_sales" model="ir.module.category">
+        <field name="name">Field Sales</field>
+        <field name="sequence">25</field>
+    </record>
+
+    <!-- Odoo 19: groups no longer carry category_id directly; a group belongs
+         to a res.groups.privilege, and the privilege carries the category.
+         Two privileges: the field-operations reporting ladder, and Finance
+         as an independent axis (a General Manager sits at the top of the
+         ladder and separately implies the Finance group). -->
+    <record id="privilege_fleet_sales_field_ops" model="res.groups.privilege">
+        <field name="name">Field Operations</field>
+        <field name="sequence">10</field>
+        <field name="category_id" ref="module_category_fleet_sales"/>
+    </record>
+    <record id="privilege_fleet_sales_finance" model="res.groups.privilege">
+        <field name="name">Finance</field>
+        <field name="sequence">20</field>
+        <field name="category_id" ref="module_category_fleet_sales"/>
+    </record>
+
+    <record id="group_fleet_sales_salesman" model="res.groups">
+        <field name="name">Salesman</field>
+        <field name="sequence">10</field>
+        <field name="privilege_id" ref="privilege_fleet_sales_field_ops"/>
+        <field name="comment">Sees and manages only their own customers, visits, orders and collections.</field>
+    </record>
+
+    <record id="group_fleet_sales_supervisor" model="res.groups">
+        <field name="name">Supervisor</field>
+        <field name="sequence">20</field>
+        <field name="privilege_id" ref="privilege_fleet_sales_field_ops"/>
+        <field name="implied_ids" eval="[(4, ref('group_fleet_sales_salesman'))]"/>
+        <field name="comment">Sees their team of salesmen and approves customer/POS requests and discount exceptions up to their threshold.</field>
+    </record>
+
+    <record id="group_fleet_sales_regional_manager" model="res.groups">
+        <field name="name">Regional Manager</field>
+        <field name="sequence">30</field>
+        <field name="privilege_id" ref="privilege_fleet_sales_field_ops"/>
+        <field name="implied_ids" eval="[(4, ref('group_fleet_sales_supervisor'))]"/>
+        <field name="comment">Sees an entire region: all its supervisors, salesmen and customers.</field>
+    </record>
+
+    <record id="group_fleet_sales_finance" model="res.groups">
+        <field name="name">Finance</field>
+        <field name="sequence">10</field>
+        <field name="privilege_id" ref="privilege_fleet_sales_finance"/>
+        <field name="comment">Financial visibility (invoices, payments, promissory notes) across the Fleet Sales suite; not part of the field-operations reporting line.</field>
+    </record>
+
+    <record id="group_fleet_sales_general_manager" model="res.groups">
+        <field name="name">General Manager</field>
+        <field name="sequence">40</field>
+        <field name="privilege_id" ref="privilege_fleet_sales_field_ops"/>
+        <field name="implied_ids" eval="[(4, ref('group_fleet_sales_regional_manager')), (4, ref('group_fleet_sales_finance'))]"/>
+        <field name="comment">Full oversight of the Fleet Sales suite: every region, every dashboard, every approval, plus Settings.</field>
+    </record>
+</odoo>
