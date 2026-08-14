@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Wizard views/action defined FIRST: the main route form below
+         references action_fleet_sales_route_copy_wizard via %(...)d in a
+         button, and that xmlid must already exist by the time this file's
+         records load, or the whole file fails with
+         "External ID not found in the system". -->
+
+    <record id="view_fleet_sales_route_copy_wizard_form" model="ir.ui.view">
+        <field name="name">fleet.sales.route.copy.wizard.form</field>
+        <field name="model">fleet.sales.route.copy.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Copy Route to Other Days">
+                <field name="route_id" invisible="1"/>
+                <field name="line_ids">
+                    <list editable="bottom">
+                        <field name="date"/>
+                    </list>
+                </field>
+                <footer>
+                    <button name="action_copy" type="object" string="Copy" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_fleet_sales_route_copy_wizard" model="ir.actions.act_window">
+        <field name="name">Copy Route to Other Days</field>
+        <field name="res_model">fleet.sales.route.copy.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="view_fleet_sales_route_form" model="ir.ui.view">
+        <field name="name">fleet.sales.route.form</field>
+        <field name="model">fleet.sales.route</field>
+        <field name="arch" type="xml">
+            <form string="Route">
+                <header>
+                    <button name="action_confirm" type="object" string="Confirm"
+                            class="oe_highlight" invisible="state != 'draft'"/>
+                    <button name="action_reset_draft" type="object" string="Reset to Draft"
+                            invisible="state != 'confirmed'"/>
+                    <button name="%(action_fleet_sales_route_copy_wizard)d" type="action"
+                            string="Copy to Other Days"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="salesman_id"/>
+                            <field name="date"/>
+                        </group>
+                        <group>
+                            <field name="stop_count"/>
+                            <field name="done_count"/>
+                        </group>
+                    </group>
+                    <div class="d-flex align-items-center gap-2 mb-3"
+                         invisible="not is_own_route">
+                        <field name="current_latitude" widget="fleet_sales_gps_capture"/>
+                        <field name="current_longitude" invisible="1"/>
+                        <button name="action_order_by_nearest" type="object"
+                                string="Order by Nearest"
+                                invisible="not current_latitude or not current_longitude"/>
+                    </div>
+                    <field name="is_own_route" invisible="1"/>
+                    <field name="stop_ids">
+                        <list editable="bottom">
+                            <field name="sequence" widget="handle"/>
+                            <field name="partner_id"/>
+                            <field name="planned_time"/>
+                            <field name="status" widget="badge"
+                                   decoration-success="status == 'done'"/>
+                            <field name="visit_id" column_invisible="1"/>
+                            <button name="action_start_visit" type="object"
+                                    string="Start Visit" invisible="visit_id"/>
+                            <button name="action_start_visit" type="object"
+                                    string="Open Visit" invisible="not visit_id"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_fleet_sales_route_list" model="ir.ui.view">
+        <field name="name">fleet.sales.route.list</field>
+        <field name="model">fleet.sales.route</field>
+        <field name="arch" type="xml">
+            <list string="Routes">
+                <field name="salesman_id"/>
+                <field name="date"/>
+                <field name="stop_count"/>
+                <field name="done_count"/>
+                <field name="state" widget="badge" decoration-success="state == 'confirmed'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_fleet_sales_route_search" model="ir.ui.view">
+        <field name="name">fleet.sales.route.search</field>
+        <field name="model">fleet.sales.route</field>
+        <field name="arch" type="xml">
+            <search string="Routes">
+                <field name="salesman_id"/>
+                <field name="date"/>
+                <filter string="Today" name="today"
+                        domain="[('date', '=', context_today().strftime('%Y-%m-%d'))]"/>
+                <filter string="Draft" name="draft" domain="[('state', '=', 'draft')]"/>
+                <filter string="Confirmed" name="confirmed" domain="[('state', '=', 'confirmed')]"/>
+                <separator/>
+                <filter string="Salesman" name="group_salesman" context="{'group_by': 'salesman_id'}"/>
+                <filter string="Date" name="group_date" context="{'group_by': 'date'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_fleet_sales_route" model="ir.actions.act_window">
+        <field name="name">Routes</field>
+        <field name="res_model">fleet.sales.route</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_today': 1}</field>
+    </record>
+
+</odoo>
