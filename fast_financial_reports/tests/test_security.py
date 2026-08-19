@@ -1,4 +1,4 @@
-from odoo.exceptions import AccessError
+from odoo.exceptions import AccessError, ValidationError
 from odoo.tests import tagged
 
 from .common import FastFinancialReportsCommon
@@ -87,6 +87,23 @@ class TestFastFinancialReportsSecurity(FastFinancialReportsCommon):
             self.env["fast.trial.balance.wizard"].with_user(self.user_no_accounting).create({
                 "date_from": "2024-01-01", "date_to": "2024-12-31",
             })
+
+    def test_user_cannot_be_left_with_zero_companies(self):
+        """Error-handling edge case, investigated: _ffr_allowed_company_ids()
+        has a defensive branch for env.companies being completely empty
+        ("You do not have access to any company"). Attempting to actually
+        construct that state - clearing a user's company_ids entirely -
+        was tried here and confirmed to be blocked by Odoo's own
+        res.users._check_company() constraint (a user's current
+        company_id must always be a member of their company_ids, so
+        company_ids can never be emptied for a persisted user). This is
+        itself a real guarantee worth asserting: the "zero company" state
+        this module defends against is not reachable through any normal
+        write, which is exactly what makes the module's own guard clause
+        pure defense-in-depth rather than something reachable in practice.
+        """
+        with self.assertRaises(ValidationError):
+            self.user_company_a_only.write({"company_ids": [(5, 0, 0)]})
 
     def test_debug_log_hidden_from_ordinary_accountant(self):
         self.env["ir.config_parameter"].sudo().set_param("fast_financial_reports.debug_mode", "True")

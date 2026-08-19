@@ -30,23 +30,30 @@ benchmark data, used for performance testing).
 
 ## 2. Automated test suite
 
-Full suite, run on a freshly-installed database (`ffr_qa`):
+Latest full run, on a freshly-installed database (`ffr_qa`), after this
+report's round-3 additions:
 
 ```
-odoo.tests.stats: fast_financial_reports: 60 tests 11.40s 8903 queries
-odoo.tests.result: 0 failed, 0 error(s) of 48 tests when loading database 'ffr_qa'
+odoo.tests.stats: fast_financial_reports: 62 tests 12.66s 8930 queries
+odoo.tests.result: 0 failed, 0 error(s) of 50 tests when loading database 'ffr_qa'
 ```
 
-48 test methods (60 counting sub-assertions Odoo's runner tracks
-separately), across:
+50 test methods, across:
 
-- `test_trial_balance.py` (17 tests)
+- `test_trial_balance.py` (18 tests - added
+  `test_total_debit_equals_total_credit`, the whole-ledger "does the trial
+  balance balance" reconciliation check, §6)
 - `test_general_ledger.py` (9 tests)
 - `test_partner_ledger.py` (6 tests)
-- `test_security.py` (5 tests)
+- `test_security.py` (6 tests - added `test_user_cannot_be_left_with_zero_companies`,
+  see the note in §13)
 - `test_performance_queries.py` (5 tests)
-- `test_accounting_correctness_vs_orm.py` (5 tests) — **new this round**,
-  see §4.
+- `test_accounting_correctness_vs_orm.py` (5 tests) — independent
+  cross-check against Odoo's own ORM aggregation, see §4.
+
+*(An earlier snapshot of this run, before the round-3 additions below,
+read `48 tests, 0 failed` - kept as a footnote only because §2's
+regression story below refers to that exact run.)*
 
 **Zero failures on this run.** (Bugs found and fixed in the *original*
 Phase 1 build round — before this QA round started — are listed in
@@ -125,13 +132,31 @@ This is implemented as a permanent automated test file,
   query agree with each other and with the ORM.
 
 **Result: all 5 cross-check tests pass, 0 mismatches**, run as part of the
-green 48-test suite above.
+green suite above.
 
 **Opening + Debit − Credit = Closing**: asserted directly, for every
 generated line, in every one of the tests above (not just spot-checked) —
 holds exactly (to floating-point/decimal rounding tolerance) in every case
 tested, including edge cases (draft entries excluded, multi-year opening
 balances, zero-activity accounts, receivable/payable scoping).
+
+**Trial Balance whole-ledger reconciliation (total debit == total
+credit)**: added this round as `test_total_debit_equals_total_credit` -
+distinct from the per-account check above, this verifies that, summed
+across *every* account with no account/journal/partner filter narrowing
+the set (so every journal entry's two-or-more lines are fully visible),
+total opening debit equals total opening credit and total period debit
+equals total period credit - the classic "does the trial balance balance"
+property that follows from every posted journal entry being balanced by
+construction. **Passes.**
+
+**Partner Ledger reconciliation**: `test_partner_ledger_matches_orm_read_group`
+(§4 above) already asserts, per partner, `opening_balance + period_debit -
+period_credit == closing_balance` against the independent `read_group`
+figures - this is item 7 of the QA mandate ("Partner Ledger: opening +
+period movement = closing, compare with standard"), satisfied the same way
+as Trial Balance/General Ledger: no Enterprise standard report to diff
+against, so verified against Odoo's own ORM aggregation instead. **Passes.**
 
 ---
 
@@ -151,6 +176,20 @@ Re-run as part of the green suite (`test_security.py`, 5 tests):
   denied at `create()` time — cannot even open a wizard.
 - The technical performance log (`fast.report.debug.log`) is invisible to
   an ordinary accounting user even when debug mode is globally enabled.
+- **"Restricted company user" / zero-companies edge case, investigated**:
+  `_ffr_allowed_company_ids()` has a defensive branch for `env.companies`
+  being completely empty. Attempting to actually construct that state -
+  clearing a user's `company_ids` entirely via `write()` - was tried as a
+  new test this round (`test_user_cannot_be_left_with_zero_companies`) and
+  is **blocked by Odoo's own `res.users._check_company()` constraint**: a
+  user's current `company_id` must always be a member of their
+  `company_ids`, so `company_ids` can never be fully emptied for a
+  persisted user (confirmed: the attempt raises `ValidationError` from
+  Odoo core, not from this module). This is a genuine, useful finding -
+  the "zero company" state this module defends against turns out not to
+  be reachable through any normal write path in stock Odoo, which makes
+  the module's guard clause pure defense-in-depth rather than something
+  exercised in practice. Test **passes** (asserts the `ValidationError`).
 
 No `sudo()` is used in the report query path (verified by code grep — see
 §6).
@@ -176,6 +215,51 @@ against `ffr_qa`, then diffed `account_move_line` / `account_move` /
 before and after — **byte-for-byte identical** (68 / 24 / 0 / 0, both
 before and after). Also verified across a full uninstall: the same counts
 held, unchanged, after `button_immediate_uninstall()`.
+
+---
+
+## 6b. Error handling — investigated directly, not simulated
+
+- **Invalid date range** (`date_from > date_to`): raises a clean
+  `UserError` ("The 'From Date' must not be after the 'To Date'."),
+  asserted by `test_invalid_date_range_raises`. Passes.
+- **No company / restricted-to-zero-companies**: investigated directly
+  (§5) - not a reachable state in stock Odoo, see above; the module's own
+  guard clause for it is defensive and unreachable via normal paths.
+- **Invalid/unauthorized company filter**: raises `AccessError`
+  (`test_single_company_user_cannot_request_other_company`,
+  `test_company_filter_restricted_to_allowed_companies`). Passes.
+- **Empty result set**: every report handles zero matching rows cleanly
+  (`test_no_results_for_account_with_no_history`,
+  `test_no_results_for_partner_with_no_history`,
+  `test_no_movement_in_future_period` for both Trial Balance and General
+  Ledger) - no exception, no divide-by-zero in the pager (`total_page_count`
+  is computed as `max(1, ...)` specifically to avoid a zero-page state),
+  empty line list. Passes.
+- **Database-level query cancellation / timeout, investigated live** (not
+  a permanent automated test - see reasoning below): a real `psycopg2`
+  `QueryCanceled` was triggered by setting `SET LOCAL statement_timeout =
+  '1ms'` immediately before calling `action_generate()` in a live
+  `odoo-bin shell` session against `ffr_qa`. Result: the exception
+  propagated as a normal, catchable Python exception
+  (`psycopg2.errors.QueryCanceled: canceling statement due to statement
+  timeout`) - not a hang, not a silent failure, not data corruption. This
+  is standard Odoo cursor/transaction behavior (nothing in this module
+  catches or suppresses it) and was verified empirically rather than
+  assumed. **Not added as a permanent automated test**: a 1ms timeout is
+  inherently timing-sensitive (could occasionally fail to trigger on a
+  fast run, or trigger at a different point in the query depending on
+  machine load), which would make it a flaky addition to a CI-style suite
+  - the finding is recorded here as a manually-verified check instead,
+  which is more honest than adding a test that might not reliably
+  reproduce the condition it claims to test.
+- **Database errors more generally**: not separately fault-injected beyond
+  the timeout case above (e.g. a killed connection mid-query, disk-full
+  during a write) - this module makes no special provision for these
+  because it makes no writes to persistent accounting data in the first
+  place (§6); any such failure would surface as a standard Odoo/PostgreSQL
+  error exactly as it would for any other report or query in the system,
+  with no module-specific state to leave inconsistent.
 
 ---
 
@@ -420,6 +504,18 @@ vs. OFFSET, no bulk recordset in Python, lazy loading, evidence-based
 (not blind) index recommendations — passed, with real numbers, real
 plans, and one real regression (a test-isolation issue, not a module bug)
 found and understood.
+
+A follow-up QA pass (round 3) added the two items not yet explicitly
+covered: a whole-ledger Trial Balance reconciliation check (total debit ==
+total credit, §4) and a dedicated error-handling investigation (§6b) -
+invalid dates, unauthorized companies, empty results, and a live-verified
+database-timeout scenario, plus an honest investigation of the "zero
+allowed companies" edge case that turned up a genuine finding (Odoo's own
+`res.users` constraint makes that state unreachable in practice). The
+suite grew from 48 to 50 tests, re-confirmed green on a completely fresh,
+from-scratch database (`ffr_final`) independent of every database used
+earlier in this report, with zero PostgreSQL errors in that run's log
+window.
 
 **Production-readiness statement, unchanged in spirit from README.md**:
 this module is functionally correct and performant against everything

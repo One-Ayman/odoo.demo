@@ -49,6 +49,23 @@ class TestFastTrialBalance(FastFinancialReportsCommon):
         return wizard.line_ids.filtered(lambda l: l.account_id == account)
 
     # -- accounting correctness -----------------------------------------
+    def test_total_debit_equals_total_credit(self):
+        """Whole-ledger reconciliation: every posted journal entry is
+        balanced (debit == credit) by construction, so summed across ALL
+        accounts (no account/journal/partner filter narrowing the set to a
+        partial view of any move), total opening debit must equal total
+        opening credit, and total period debit must equal total period
+        credit. This is the classic "does the trial balance balance"
+        check, distinct from the per-account opening+debit-credit=closing
+        check above."""
+        wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31", show_zero=True)
+        total_opening_debit = sum(wizard.line_ids.mapped("opening_debit"))
+        total_opening_credit = sum(wizard.line_ids.mapped("opening_credit"))
+        total_period_debit = sum(wizard.line_ids.mapped("period_debit"))
+        total_period_credit = sum(wizard.line_ids.mapped("period_credit"))
+        self.assertAlmostEqual(total_opening_debit, total_opening_credit, places=2)
+        self.assertAlmostEqual(total_period_debit, total_period_credit, places=2)
+
     def test_opening_period_closing_reconcile(self):
         wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31")
         for line in wizard.line_ids:
