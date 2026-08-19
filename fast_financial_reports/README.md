@@ -17,6 +17,14 @@ never runs `search()` followed by a Python loop over `account.move.line`,
 never loads a bulk move-line recordset into memory, and never modifies
 accounting data, invoices, reconciliation, POS accounting, or ZATCA logic.
 
+**See [`QA_REPORT.md`](QA_REPORT.md) for the full QA and performance
+validation pass**: automated + functional + accounting-correctness
+testing (including an independent cross-check against Odoo's own ORM
+aggregation), multi-company security re-verification, EXPLAIN ANALYZE on
+every query path, a real naive-vs-fast benchmark (including a genuine
+`MemoryError` from the anti-pattern this module avoids), and 10M-row-tier
+results.
+
 ---
 
 ## Table of contents

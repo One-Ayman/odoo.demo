@@ -1,0 +1,16 @@
+=== Keyset (cursor) pagination vs OFFSET pagination, General Ledger detail ===
+=== account_id=6 (Account Receivable), company_id=1, 5,100,068 total account_move_line rows ===
+=== Both variants fetch 21 rows (page_size=20 + 1 lookahead), warm cache ===
+
+Depth        | OFFSET pagination | Keyset pagination | Speedup
+row 1,001    | 431.2 ms           | 24.9 ms            | ~17x
+row 100,000  | 625.2 ms           | 27.9 ms            | ~22x
+
+Keyset pagination cost stays flat regardless of how deep the page is
+(bounded by an index range scan starting at the cursor); OFFSET pagination
+must walk and discard every prior row every time, so its cost grows with
+depth. At 5.1M rows this is already a meaningful, measured difference; the
+gap widens further as the table grows (extrapolating: at 75M rows, an
+OFFSET-100000 style deep page would need to walk proportionally more rows,
+while keyset pagination's cost is architecturally independent of table
+size for a given page).

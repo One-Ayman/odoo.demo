@@ -1,0 +1,22 @@
+=== Naive (search() + Python loop) vs Fast Financial Reports: real measurements ===
+=== Same machine, same warm PostgreSQL cache, same filters, run 3x for consistency ===
+===
+=== Standard Odoo Trial Balance/General Ledger/Partner Ledger (account_reports) is an
+=== Enterprise-only module and was not available in this Community-only sandbox, so a
+=== direct comparison against it could not be produced (see README "Known limitations").
+=== This benchmark instead compares against the exact anti-pattern the task explicitly
+=== forbids - search() followed by a Python loop over account.move.line - which is what
+=== an unoptimized/hand-rolled report (or a naive reimplementation of a standard report)
+=== would do. This is a fair, real, and arguably more relevant comparison than a
+=== synthetic one, since it isolates exactly the architectural choice this module makes.
+======================================================================
+TIER: company_id=17 (~100,000 account_move_line rows)
+======================================================================
+NAIVE (search + Python loop): {'rows_loaded_into_python': 100000, 'accounts': 2, 'search_time_s': 0.194, 'python_loop_time_s': 3.944, 'total_time_s': 4.138, 'sql_query_count': 101}
+FAST (this module):          {'rows_loaded_into_python': 2, 'accounts': 2, 'total_time_s': 0.111, 'sql_query_count': 15, 'reported_sql_time_ms': 36.90944999993917}
+======================================================================
+TIER: company_id=1, narrowed to 2024 only (~subset of 5.1M rows)
+======================================================================
+rows matching this filter: 716932
+NAIVE (search + Python loop): CRASHED with MemoryError while fetching 716932 rows into the ORM cache - did not complete.
+FAST (this module):          {'rows_loaded_into_python': 22, 'accounts': 22, 'total_time_s': 2.382, 'sql_query_count': 9, 'reported_sql_time_ms': 1237.3576309998953}
