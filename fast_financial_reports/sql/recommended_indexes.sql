@@ -19,50 +19,65 @@
 -- ---------------------------------------------------------------------
 -- 1. (company_id, date) WHERE parent_state = 'posted'
 -- ---------------------------------------------------------------------
--- Optimizes: Trial Balance / General Ledger summary queries filtered to a
--- NARROW date range within a LARGE company (see wizard/trial_balance.py
--- and wizard/general_ledger.py _ffr_where()).
+-- Considered for: Trial Balance / General Ledger summary queries filtered
+-- to a NARROW date range within a LARGE company (see
+-- wizard/trial_balance.py and wizard/general_ledger.py _ffr_where()).
 --
--- Evidence (see README.md and docs/benchmarks/ for the full before/after
--- EXPLAIN ANALYZE output; each figure below is the average of 3 runs after
--- ANALYZE, to smooth out buffer-cache warm-up noise):
---   - On a single large company (~5,100,000 rows in the table, most of them
---     for that company) filtered to one calendar month: ~251ms -> ~230ms
---     (~8% faster), and the plan switches from a Bitmap Heap Scan on the
---     existing account_move_line_date_name_id_idx to a direct Index Scan
---     on this new index.
---   - On a WIDE date range (e.g. an "opening balance since inception"
---     query, or the common case of "this fiscal year to date" once the
---     company has years of history), the query must read most of the
---     table regardless of any index, so this index gives NO measurable
---     benefit and PostgreSQL correctly ignores it in favor of a sequential
---     scan.
---   - For a SMALL company sharing a database with many other companies
---     (the realistic multi-company case this table is usually in), the
---     existing single-column account_move_line__company_id_index (already
---     shipped by Odoo's account module) is already sufficient - this
---     composite index gave no further improvement in that scenario either
---     (36ms vs 38ms on a 100,000-row company inside a 5,100,000-row table).
+-- Evidence, gathered in TWO rounds at two different table sizes (see
+-- README.md and docs/benchmarks/ for the full EXPLAIN ANALYZE output; each
+-- figure is the average of 3 runs after ANALYZE, warm cache):
 --
--- Recommendation: LOW PRIORITY / OPTIONAL. Only apply if your production
--- workload is dominated by narrow-period (e.g. monthly) reports run against
--- large individual companies, and re-validate with EXPLAIN ANALYZE on your
--- own data first - the measured gain (~8%) is real but modest, and may not
--- be worth the write/storage overhead for every deployment.
+--   Round 1, ~5,100,000 rows in the table: ~251ms -> ~230ms (~8% FASTER).
+--   The plan switched from a Bitmap Heap Scan on the existing
+--   account_move_line_date_name_id_idx to a plain Index Scan on this new
+--   index - a small win.
 --
--- Write/storage overhead: adds one index entry per posted account_move_line
--- row (the WHERE clause excludes draft/cancelled lines, keeping it smaller
--- than a full-table index). Every INSERT/UPDATE that touches company_id,
--- date, or parent_state on a posted line pays a small extra write cost.
--- At 75,000,000 lines, expect roughly 1.5-2.5 GB of additional index size
--- (rule of thumb only - verify with pg_relation_size() after a CONCURRENT
--- build on a staging copy before running on production).
+--   Round 2, ~10,000,000 rows in the table, SAME query: ~452ms -> ~602ms
+--   (~30% SLOWER). At this larger size and result-set cardinality (~117,000
+--   matching rows), a plain Index Scan on the new (company_id, date) index
+--   visits heap pages in index order - a scattered/random access pattern;
+--   the existing plan (Bitmap Heap Scan on
+--   account_move_line_date_name_id_idx) collects matching row locations
+--   first and then visits heap pages in physical order, which is more
+--   I/O-efficient once the result set is large enough. Adding the new
+--   index tempted PostgreSQL's planner into the WORSE plan for this exact
+--   query shape at this scale. Confirmed reproducible: dropping the index
+--   again restored the faster Bitmap Heap Scan plan (459ms).
+--
+-- This is a genuine, measured example of exactly why "do not add indexes
+-- blindly" matters: the SAME index, on the SAME query shape, went from a
+-- modest win to a real regression purely because the table grew and the
+-- matching row count crossed the threshold where PostgreSQL's own
+-- Bitmap-Heap-Scan-vs-Index-Scan tradeoff flips. A conclusion drawn from
+-- one data size does not necessarily hold at another.
+--
+-- For a SMALL company sharing a database with many other companies (the
+-- realistic multi-company case this table is usually in), the existing
+-- single-column account_move_line__company_id_index (already shipped by
+-- Odoo's account module) was already sufficient in both rounds - this
+-- composite index gave no further improvement there either.
+--
+-- Recommendation: NOT RECOMMENDED (revised after round 2). The round-1
+-- finding (a modest win at 5.1M rows) does not hold at 10M rows, where the
+-- same index measurably hurts the same query. Given the module's own
+-- target scale is ~75M rows - well past where this reversal already
+-- appeared at 10M - applying this index without re-validating against the
+-- actual production data size and distribution first would be exactly the
+-- "blind index" this policy exists to prevent. Left here, disabled
+-- (commented out below), for the record.
+--
+-- Write/storage overhead (if you still choose to test this on a staging
+-- copy of production, despite the recommendation above): adds one index
+-- entry per posted account_move_line row. At 75,000,000 lines, expect
+-- roughly 1.5-2.5 GB of additional index size (rule of thumb only -
+-- verify with pg_relation_size() after a CONCURRENT build on staging).
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS account_move_line_ffr_company_date_idx
-    ON account_move_line (company_id, date)
-    WHERE parent_state = 'posted';
+-- CREATE INDEX CONCURRENTLY IF NOT EXISTS account_move_line_ffr_company_date_idx
+--     ON account_move_line (company_id, date)
+--     WHERE parent_state = 'posted';
 
--- To remove it again (safe, reversible, does not lock the table):
+-- To remove it again, if you applied it anyway (safe, reversible, does
+-- not lock the table):
 -- DROP INDEX CONCURRENTLY IF EXISTS account_move_line_ffr_company_date_idx;
 
 
@@ -77,13 +92,19 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS account_move_line_ffr_company_date_idx
 -- combined with account_move_line_partner_id_ref_idx (a BitmapAnd of the
 -- two) over this new index, with no statistically significant wall-clock
 -- improvement (430ms vs 375ms, within run-to-run noise on this hardware).
+-- Re-tested at 10,000,000 rows (round 2 of QA): same result - the planner
+-- still does not use this index at all (confirmed by reading the actual
+-- EXPLAIN plan, not just timing: it still shows a BitmapAnd of the two
+-- existing indexes), and wall-clock time is unchanged within noise
+-- (~822-960ms before, ~845-934ms after). Unlike candidate #1 above, this
+-- conclusion is STABLE across both tested scales.
 --
 -- Recommendation: NOT RECOMMENDED based on the evidence gathered for this
--- module. The existing indexes already cover this access pattern
--- reasonably well. Left here, disabled, for the record - do not apply this
--- one without first re-running EXPLAIN ANALYZE on your own production
--- data and query shapes, since a genuinely different partner cardinality
--- or account distribution could change this conclusion.
+-- module, at both tested scales. The existing indexes already cover this
+-- access pattern reasonably well. Left here, disabled, for the record - do
+-- not apply this one without first re-running EXPLAIN ANALYZE on your own
+-- production data and query shapes, since a genuinely different partner
+-- cardinality or account distribution could still change this conclusion.
 --
 -- CREATE INDEX CONCURRENTLY IF NOT EXISTS account_move_line_ffr_company_partner_date_idx
 --     ON account_move_line (company_id, partner_id, date)

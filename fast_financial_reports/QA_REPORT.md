@@ -290,34 +290,82 @@ consideration, not just a benchmarking artifact — noted in §12.
 
 ---
 
-## 10. Index analysis (this QA round)
+## 10. Index analysis — re-examined at TWO scales, one verdict reversed
 
-No new index was created blindly. The two candidates from the original
-Phase 1 evaluation were re-examined:
+No new index was created blindly, and no index was left applied to any
+database after testing. The two candidates from the original Phase 1
+evaluation were re-tested at both the 5.1M-row tier (prior round) and the
+new 10M-row tier (this round) — full before/after EXPLAIN ANALYZE for both
+rounds is in `sql/recommended_indexes.sql` and
+`docs/benchmarks/tier4_10m.txt`.
 
-- **`(company_id, date) WHERE posted`**: prior evidence (~8% improvement
-  for narrow-period queries on a large company, no improvement for
-  wide-range queries) — see `sql/recommended_indexes.sql` for the full
-  before/after EXPLAIN ANALYZE and the averaged (3-run) numbers. Verdict
-  unchanged: optional, low priority.
-- **`(company_id, partner_id, date) WHERE posted AND partner_id IS NOT NULL`**:
-  prior evidence showed PostgreSQL's planner preferring the existing
-  indexes over this one, with no significant improvement. Verdict
-  unchanged: not recommended.
+- **`(company_id, date) WHERE posted`** — **verdict changed from "optional/
+  low priority" to NOT RECOMMENDED.** At 5.1M rows it measured ~8% faster
+  for a narrow-period query on a large company. At 10M rows, the *same*
+  query with the *same* index measured **~30% slower** (~452ms → ~602ms).
+  The reason, confirmed by reading the actual query plans (not just
+  timing): at 10M rows the query matches enough rows (~117,000) that
+  PostgreSQL's existing plan — a Bitmap Heap Scan on
+  `account_move_line_date_name_id_idx`, which visits heap pages in
+  physical order — beats a plain Index Scan on the new composite index,
+  which visits heap pages in index order (a scattered, less I/O-efficient
+  pattern at this result-set size). Adding the index tempted the planner
+  into the *worse* of the two plans for this exact query shape once the
+  table grew. Confirmed reproducible: dropping the index restored the
+  faster plan (459ms). **This is exactly the scenario the "do not add
+  indexes blindly" policy exists for** — a real index, on a real query,
+  that helps at one scale and hurts at a larger one; extrapolating a
+  conclusion from 5.1M rows to the 75M-row production target without
+  re-validating would have been a mistake this round caught.
+- **`(company_id, partner_id, date) WHERE posted AND partner_id IS NOT NULL`**
+  — verdict unchanged: **not recommended**, and this time confirmed
+  *stable* across both scales. At 10M rows the planner still does not use
+  this index at all (verified by reading the plan: still a `BitmapAnd` of
+  the two pre-existing indexes), and wall-clock time is unchanged within
+  run-to-run noise (~822–960ms before, ~845–934ms after).
 
-Both remain **not applied** to any database used in this round (verified:
-`\di` on `ffr_dev` shows no `ffr_*` or custom indexes present beyond what
-Odoo itself ships). `sql/recommended_indexes.sql` continues to be the only
-place either is defined, and it is never referenced from any install/
-migration hook.
+Neither index remains applied to any database used in this round —
+verified with `\di account_move_line_ffr*` on `ffr_dev` after each test:
+empty, both times. `sql/recommended_indexes.sql` is the only place either
+is defined (both now commented out, matching their "not recommended"
+verdicts), and it is never referenced from any install/upgrade/migration
+hook.
 
 ---
 
 ## 11. 10,000,000-row tier
 
-*(Filled in after this round's 10M-row generation completed — see the
-"10M tier" section below for the actual measured numbers, or
-`docs/benchmarks/tier4_10m.txt` for full raw EXPLAIN ANALYZE output.)*
+Synthetic data was scaled from 5,100,068 to **10,000,068**
+`account_move_line` rows (a 2018–2024 spread, ~22 distinct accounts across
+the sizes used, ~2,000 synthetic partners), same schema/indexes as the
+prior tiers. Full raw output: `docs/benchmarks/tier4_10m.txt`. All figures
+warm-cache (see §9's cold-cache caveat).
+
+| Query | 5.1M rows | 10M rows | Scaling |
+|---|---|---|---|
+| Trial Balance summary (full history) | 1,191 ms | 2,552 ms | ~2.1× (near-linear with row count, as expected for a scan-dominated query with no fully-covering index — see §12) |
+| Partner Ledger summary (full history) | 666 ms | 1,240 ms | ~1.9× |
+| General Ledger detail, 1 account, page 1 | 3.5 ms | 6.6 ms | ~1.9× (still effectively instant) |
+| Partner Ledger detail, 1 partner, page 1 | 2.0 ms | 5.7 ms | ~2.9× (still effectively instant) |
+| Trial Balance COUNT (pager total) | 1,206 ms | 2,448 ms | ~2.0× |
+| Keyset pagination, page at row 100,000 depth | 27.9 ms | 17.3 ms | flat (noise-level difference, confirms depth-independence) |
+| `OFFSET` pagination, same page/depth | 625 ms | 538 ms | flat-ish, but still ~30× slower than keyset at both sizes |
+
+The pattern holds at 10M exactly as it did at 5.1M and as predicted in the
+original report: queries that must aggregate across a wide date range
+scale roughly linearly with table size (nothing can avoid that without a
+Phase 2 summary table — see §12); queries scoped to one account or one
+partner (the interactive drill-down path users actually wait on) stay in
+single-digit milliseconds regardless of table size, because they are
+always bounded by an indexed range scan on that one account/partner; and
+keyset pagination's cost stays flat with page depth while `OFFSET`'s does
+not, now confirmed at double the row count of the original report.
+
+75,000,000 rows (the real production target, ~7.5× this tier) was not
+reached — see §9 and README.md → "Known limitations" for why. The
+100K→1M→5.1M→10M trend across four real, measured tiers is the strongest
+extrapolation basis available in this environment, but it is not a
+substitute for a genuine 75M-row measurement.
 
 ---
 
@@ -345,6 +393,15 @@ migration hook.
    Phase 1 report).
 5. Standard-Odoo-report parity remains unverified — Enterprise
    `account_reports` was unavailable in this sandbox (unchanged).
+6. **Index conclusions do not automatically extrapolate across scale**
+   (§10): the `(company_id, date)` candidate flipped from a measured win
+   at 5.1M rows to a measured regression at 10M rows. Since production is
+   ~75M rows (7.5× this report's largest tested tier), *any* index
+   decision made from this report's evidence — including the "not
+   recommended" verdicts — should be re-validated with fresh EXPLAIN
+   ANALYZE against production's actual data distribution before being
+   treated as final, not assumed to hold unchanged at 75M just because it
+   held at 10M.
 
 ---
 

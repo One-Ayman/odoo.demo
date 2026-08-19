@@ -264,18 +264,23 @@ documented, reviewed, manually-applied artifact for a DBA to run during a
 maintenance window, after re-validating against the target production
 database.
 
-Summary of what was evaluated (see the file for full before/after EXPLAIN
-ANALYZE and 3-run averages):
+Both candidates were re-tested at **two** table sizes (5.1M and 10M rows -
+see [`QA_REPORT.md`](QA_REPORT.md) §10-11 for the full round-2 write-up)
+specifically to check whether a conclusion drawn from one size holds at
+another:
 
 | Candidate index | Verdict | Evidence |
 |---|---|---|
-| `(company_id, date) WHERE posted` | **Optional, low priority** | ~8% faster (251ms → 230ms, averaged over 3 runs) for a narrow (1-month) period on a large company; **no** measurable benefit for wide date ranges or for companies already small relative to the table (existing single-column `company_id` index is already sufficient there: 36ms vs 38ms) |
-| `(company_id, partner_id, date) WHERE posted AND partner_id IS NOT NULL` | **Not recommended** | PostgreSQL's planner continued to prefer the existing `account_id_date_idx` + `partner_id_ref_idx` combination over this new index; no statistically significant improvement (430ms vs 375ms, within run-to-run noise) |
+| `(company_id, date) WHERE posted` | **Not recommended** (verdict reversed after re-testing at scale) | ~8% *faster* at 5.1M rows (251ms → 230ms), but ~30% *slower* at 10M rows (452ms → 602ms) on the identical query - PostgreSQL's planner is tempted into a less I/O-efficient plan once the matching row count crosses a threshold. Confirmed reproducible both ways. See §10 for the full explanation. |
+| `(company_id, partner_id, date) WHERE posted AND partner_id IS NOT NULL` | **Not recommended** (confirmed stable at both scales) | PostgreSQL's planner continued to prefer the existing `account_id_date_idx` + `partner_id_ref_idx` combination over this new index at both 5.1M and 10M rows; no statistically significant improvement at either size |
 
-Both candidates were tested with real `EXPLAIN (ANALYZE, BUFFERS)` against
-a >5,000,000-row `account_move_line` table (see next section) - neither was
-added blindly, and one was explicitly rejected based on the evidence rather
-than added "because the task suggested it."
+Both candidates were tested with real `EXPLAIN (ANALYZE, BUFFERS)` - neither
+was added blindly, and both are explicitly rejected based on the evidence
+rather than added "because the task suggested it." The first candidate's
+scale-dependent reversal is itself the strongest argument in this report
+for re-validating any index decision against production's actual ~75M-row
+data before applying it, rather than trusting a conclusion from a smaller
+test.
 
 ---
 
@@ -383,6 +388,11 @@ odoo.tests.stats: fast_financial_reports: 53 tests 12.89s 8400 queries
 odoo.tests.result: 0 failed, 0 error(s) of 43 tests when loading database 'ffr_dev'
 ```
 
+*(This is round 1's result, kept verbatim as a historical record. A round-2
+QA pass added `tests/test_accounting_correctness_vs_orm.py` - see
+[`QA_REPORT.md`](QA_REPORT.md) for the updated 48-tests-green run and the
+independent ORM cross-check it added.)*
+
 Coverage includes: one day / one week / one month / one year / multi-year
 date ranges, an empty-future-period (opening balance carries forward
 correctly, zero period movement), a genuinely empty result (account/partner
@@ -487,28 +497,35 @@ posted-only:
 | 100,000 | 35.3 ms | 25.1 ms | 2.3 ms |
 | 1,000,000 | 204.5 ms | 136.3 ms | 3.7 ms |
 | 5,100,000 | 1,167.0 ms | 638.7 ms | 12.8 ms |
+| 10,000,000 | 2,551.9 ms | 1,239.8 ms | 6.6 ms |
 
 At the 100K–1M tier the summary queries use a parallel sequential scan
-(cheap at this size) or an existing bitmap index scan; at 5.1M rows with a
-*full-history* date range, a sequential scan is genuinely the
-cost-minimizing plan (the query must read most of the table's history
-regardless of any index - see the index evidence above), which is exactly
-why the "only aggregated rows reach Python, and the number of SQL
+(cheap at this size) or an existing bitmap index scan; from 5.1M rows
+onward, with a *full-history* date range, a sequential scan is genuinely
+the cost-minimizing plan (the query must read most of the table's history
+regardless of any index - see [Recommended indexes](#recommended-indexes),
+including a case where adding an index made this *worse*), which is
+exactly why the "only aggregated rows reach Python, and the number of SQL
 statements does not grow with row count" design matters more than any
-single index: the module returns in ~1 second at 5M rows what an
-uncontrolled `search()` + Python loop over the same rows would take vastly
-longer to do, and would additionally build a multi-hundred-MB Python
-recordset the server would need to hold in memory. General Ledger detail
+single index: the module returns in ~2.5 seconds at 10M rows what, per a
+real measurement (not an estimate - see
+[QA_REPORT.md](QA_REPORT.md) §8), an uncontrolled `search()` + Python loop
+over a comparable row count does not just do slowly but can **crash with
+an out-of-memory error** before completing at all. General Ledger detail
 (the query users actually wait on interactively, since it is the drill-down
-step) stays under 13ms even at 5.1M rows, because it is always scoped to
-one account plus the existing `account_id_date_idx` / date-ordered index.
+step) stays in single-digit milliseconds even at 10M rows, because it is
+always scoped to one account plus the existing `account_id_date_idx` /
+date-ordered index - the summary-query cost above scales with table size
+because it must aggregate broadly; the interactive drill-down path does
+not, by design.
 
-10,000,000+ rows (approaching the real 75,000,000-row target) was not
-reached in this sandboxed environment (disk/time budget) - see
-[Known limitations](#known-limitations). The 100K→1M→5.1M trend above is
-consistent with the (roughly linear, since no index fully covers a
-full-history scan) growth expected up to that scale; it is not a
-substitute for a real measurement at 75M rows.
+75,000,000 rows (the real production target, ~7.5× the largest tier
+reached) was not reached in this sandboxed environment (disk/time budget)
+- see [Known limitations](#known-limitations). The 100K→1M→5.1M→10M trend
+above, now spanning two full order-of-magnitude steps, is consistent with
+the (roughly linear, since no index fully covers a full-history scan)
+growth expected up to that scale; it is not a substitute for a real
+measurement at 75M rows.
 
 ### Multi-user / concurrency
 
@@ -534,15 +551,20 @@ copy of the actual production database.
   explicitly excluding Profit & Loss.
 - **Analytic filter is not indexed at true 75M-row scale in this repo's
   testing** - the GIN index it reuses is real and shipped by Odoo's
-  `analytic` module, but was only validated at the tested tiers (≤5.1M
+  `analytic` module, but was only validated at the tested tiers (≤10M
   rows overall; the analytic-filtered test used a small fixture), not
   against tens of millions of analytically-tagged lines.
-- **10M+/75M-row tier not reached.** See Performance benchmark results
+- **75M-row tier not reached (10M was).** See Performance benchmark results
   above - this sandbox's disk/time budget capped synthetic data generation
-  at ~5.1M rows. The 100K→1M→5.1M trend is real evidence of the *shape* of
-  the scaling problem (and that the design avoids it for the parts that
-  matter - row count reaching Python, SQL statement count), but is not a
-  substitute for a genuine 75M-row measurement.
+  at 10,000,068 rows, ~7.5× short of the real 75M target. The
+  100K→1M→5.1M→10M trend is real evidence of the *shape* of the scaling
+  problem (and that the design avoids it for the parts that matter - row
+  count reaching Python, SQL statement count), but is not a substitute for
+  a genuine 75M-row measurement. Notably, an index-scale reversal was
+  observed between the 5.1M and 10M tiers (see
+  [Recommended indexes](#recommended-indexes)) - a concrete reminder that
+  conclusions from this report's largest tested tier still should not be
+  assumed to hold unchanged at the real production scale.
 - **No concurrent/multi-user load test was run** (see above).
 - **No side-by-side timing against standard Odoo Trial Balance / General
   Ledger / Partner Ledger reports** - those are Enterprise-only
@@ -602,10 +624,12 @@ copy of the actual production database.
       asserted no detail wizard exists until requested)
 - [x] XLSX export works (real download verified, valid file)
 - [x] PDF export works (real render verified, valid 1-page PDF)
-- [x] Automated tests pass (43/43, 0 failed, 0 errors)
+- [x] Automated tests pass (48/48, 0 failed, 0 errors - see QA_REPORT.md
+      for the round-2 re-run that added 5 independent ORM cross-check tests)
 - [x] Functional tests pass (date ranges, filters, edge cases - see Testing performed)
-- [x] Performance tests completed - **at 100K/1M/5.1M rows only**, not the
+- [x] Performance tests completed - **at 100K/1M/5.1M/10M rows**, not the
       full 75M target (sandbox disk/time budget); see Known limitations
+      and QA_REPORT.md for the 10M-tier results
 - [ ] Stress tests completed - **not run**: no facility for concurrent
       multi-worker load testing in this environment
 - [x] No accounting data is modified (module is read-only by construction;
