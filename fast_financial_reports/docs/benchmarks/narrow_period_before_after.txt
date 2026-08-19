@@ -1,0 +1,25 @@
+=== Trial Balance, narrow one-month period (2024-06), large company (company_id=1) ===
+=== Table size at time of test: ~5,100,000 account_move_line rows total ===
+=== Each variant run 3x after ANALYZE, to average out buffer-cache warmup noise ===
+
+--- BEFORE: no (company_id, date) index (existing indexes only) ---
+run 1:
+         ->  Bitmap Index Scan on account_move_line_date_name_id_idx  (cost=0.00..1840.91 rows=56048 width=0) (actual time=11.017..11.018 rows=60068 loops=1)
+ Execution Time: 257.991 ms
+run 2:
+         ->  Bitmap Index Scan on account_move_line_date_name_id_idx  (cost=0.00..1840.91 rows=56048 width=0) (actual time=10.619..10.620 rows=60068 loops=1)
+ Execution Time: 247.209 ms
+run 3:
+         ->  Bitmap Index Scan on account_move_line_date_name_id_idx  (cost=0.00..1840.91 rows=56048 width=0) (actual time=10.924..10.925 rows=60068 loops=1)
+ Execution Time: 248.109 ms
+
+--- AFTER: with (company_id, date) partial index ---
+run 1:
+   ->  Index Scan using account_move_line_ffr_company_date_idx on account_move_line aml  (cost=0.43..88058.27 rows=63166 width=13) (actual time=0.046..211.956 rows=58882 loops=1)
+ Execution Time: 230.554 ms
+run 2:
+   ->  Index Scan using account_move_line_ffr_company_date_idx on account_move_line aml  (cost=0.43..88058.27 rows=63166 width=13) (actual time=0.043..202.755 rows=58882 loops=1)
+ Execution Time: 220.906 ms
+run 3:
+   ->  Index Scan using account_move_line_ffr_company_date_idx on account_move_line aml  (cost=0.43..88058.27 rows=63166 width=13) (actual time=0.043..217.865 rows=58882 loops=1)
+ Execution Time: 237.824 ms

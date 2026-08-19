@@ -1,0 +1,90 @@
+-- Fast Financial Reports - optional recommended indexes
+-- =======================================================
+--
+-- IMPORTANT: this script is NOT executed automatically by the module, on
+-- install, upgrade, or ever. It is a documented, reviewed, manually-applied
+-- artifact for a DBA/administrator to run during a maintenance window on a
+-- specific production database, after validating the "before" evidence in
+-- README.md ("SQL architecture and index analysis") against that database's
+-- own EXPLAIN ANALYZE output - not blindly.
+--
+-- Both indexes below use CREATE INDEX CONCURRENTLY, which builds the index
+-- without taking a table-level lock that would block reads/writes on
+-- account_move_line (the trade-off is a slower build and a small chance of
+-- needing to retry if it's ever interrupted - see PostgreSQL docs on
+-- CREATE INDEX CONCURRENTLY for the "invalid index" cleanup procedure).
+--
+-- Do not run CREATE INDEX CONCURRENTLY inside a transaction block / BEGIN.
+
+-- ---------------------------------------------------------------------
+-- 1. (company_id, date) WHERE parent_state = 'posted'
+-- ---------------------------------------------------------------------
+-- Optimizes: Trial Balance / General Ledger summary queries filtered to a
+-- NARROW date range within a LARGE company (see wizard/trial_balance.py
+-- and wizard/general_ledger.py _ffr_where()).
+--
+-- Evidence (see README.md and docs/benchmarks/ for the full before/after
+-- EXPLAIN ANALYZE output; each figure below is the average of 3 runs after
+-- ANALYZE, to smooth out buffer-cache warm-up noise):
+--   - On a single large company (~5,100,000 rows in the table, most of them
+--     for that company) filtered to one calendar month: ~251ms -> ~230ms
+--     (~8% faster), and the plan switches from a Bitmap Heap Scan on the
+--     existing account_move_line_date_name_id_idx to a direct Index Scan
+--     on this new index.
+--   - On a WIDE date range (e.g. an "opening balance since inception"
+--     query, or the common case of "this fiscal year to date" once the
+--     company has years of history), the query must read most of the
+--     table regardless of any index, so this index gives NO measurable
+--     benefit and PostgreSQL correctly ignores it in favor of a sequential
+--     scan.
+--   - For a SMALL company sharing a database with many other companies
+--     (the realistic multi-company case this table is usually in), the
+--     existing single-column account_move_line__company_id_index (already
+--     shipped by Odoo's account module) is already sufficient - this
+--     composite index gave no further improvement in that scenario either
+--     (36ms vs 38ms on a 100,000-row company inside a 5,100,000-row table).
+--
+-- Recommendation: LOW PRIORITY / OPTIONAL. Only apply if your production
+-- workload is dominated by narrow-period (e.g. monthly) reports run against
+-- large individual companies, and re-validate with EXPLAIN ANALYZE on your
+-- own data first - the measured gain (~8%) is real but modest, and may not
+-- be worth the write/storage overhead for every deployment.
+--
+-- Write/storage overhead: adds one index entry per posted account_move_line
+-- row (the WHERE clause excludes draft/cancelled lines, keeping it smaller
+-- than a full-table index). Every INSERT/UPDATE that touches company_id,
+-- date, or parent_state on a posted line pays a small extra write cost.
+-- At 75,000,000 lines, expect roughly 1.5-2.5 GB of additional index size
+-- (rule of thumb only - verify with pg_relation_size() after a CONCURRENT
+-- build on a staging copy before running on production).
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS account_move_line_ffr_company_date_idx
+    ON account_move_line (company_id, date)
+    WHERE parent_state = 'posted';
+
+-- To remove it again (safe, reversible, does not lock the table):
+-- DROP INDEX CONCURRENTLY IF EXISTS account_move_line_ffr_company_date_idx;
+
+
+-- ---------------------------------------------------------------------
+-- 2. (company_id, partner_id, date) WHERE parent_state = 'posted' AND
+--    partner_id IS NOT NULL
+-- ---------------------------------------------------------------------
+-- Considered for: Partner Ledger summary queries (wizard/partner_ledger.py).
+--
+-- Evidence: EXPLAIN ANALYZE at 5,100,000 rows shows PostgreSQL's planner
+-- continuing to prefer the existing account_move_line_account_id_date_idx
+-- combined with account_move_line_partner_id_ref_idx (a BitmapAnd of the
+-- two) over this new index, with no statistically significant wall-clock
+-- improvement (430ms vs 375ms, within run-to-run noise on this hardware).
+--
+-- Recommendation: NOT RECOMMENDED based on the evidence gathered for this
+-- module. The existing indexes already cover this access pattern
+-- reasonably well. Left here, disabled, for the record - do not apply this
+-- one without first re-running EXPLAIN ANALYZE on your own production
+-- data and query shapes, since a genuinely different partner cardinality
+-- or account distribution could change this conclusion.
+--
+-- CREATE INDEX CONCURRENTLY IF NOT EXISTS account_move_line_ffr_company_partner_date_idx
+--     ON account_move_line (company_id, partner_id, date)
+--     WHERE parent_state = 'posted' AND partner_id IS NOT NULL;

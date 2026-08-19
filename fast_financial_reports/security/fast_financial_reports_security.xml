@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <!-- Technical / debug group: only users explicitly granted this
+             (or, by default, Administrators) can see the performance debug
+             log. Ordinary accounting users never see it, per spec. -->
+        <record id="group_fast_financial_reports_debug" model="res.groups">
+            <field name="name">Fast Financial Reports: Performance Debug</field>
+            <field name="category_id" ref="base.module_category_hidden"/>
+            <field name="users" eval="[(4, ref('base.user_admin'))]"/>
+        </record>
+
+    </data>
+</odoo>

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_fast_trial_balance_wizard_form" model="ir.ui.view">
+        <field name="name">fast.trial.balance.wizard.form</field>
+        <field name="model">fast.trial.balance.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Fast Trial Balance">
+                <group>
+                    <group>
+                        <field name="company_ids" widget="many2many_tags"
+                               options="{'no_create': True}"/>
+                        <field name="date_from"/>
+                        <field name="date_to"/>
+                        <field name="posted_only"/>
+                        <field name="show_zero"/>
+                    </group>
+                    <group>
+                        <field name="account_ids" widget="many2many_tags" options="{'no_create': True}"/>
+                        <field name="journal_ids" widget="many2many_tags" options="{'no_create': True}"/>
+                        <field name="partner_ids" widget="many2many_tags" options="{'no_create': True}"/>
+                        <field name="analytic_account_id"/>
+                        <field name="page_size"/>
+                    </group>
+                </group>
+                <div class="d-flex gap-2">
+                    <button name="action_generate" type="object" string="Generate" class="btn-primary"/>
+                    <button name="action_export_xlsx" type="object" string="Export XLSX"
+                            class="btn-secondary" invisible="not generated"/>
+                    <button name="action_export_pdf" type="object" string="Export PDF"
+                            class="btn-secondary" invisible="not generated"/>
+                </div>
+                <div class="mt-2 mb-2" invisible="not generated">
+                    <div class="d-flex gap-3 align-items-center">
+                        <button name="action_prev_page" type="object" string="&lt;&lt; Previous"
+                                invisible="page &lt;= 1"/>
+                        <span>Page <field name="page" readonly="1" class="oe_inline"/> / <field name="total_page_count" readonly="1" class="oe_inline"/>
+                            (<field name="total_account_count" readonly="1" class="oe_inline"/> accounts)</span>
+                        <button name="action_next_page" type="object" string="Next &gt;&gt;"
+                                invisible="page &gt;= total_page_count"/>
+                    </div>
+                    <p class="text-muted" groups="fast_financial_reports.group_fast_financial_reports_debug">
+                        SQL: <field name="last_sql_time_ms" readonly="1" class="oe_inline" widget="float" options="{'precision': [0,1]}"/> ms -
+                        Total: <field name="last_total_time_ms" readonly="1" class="oe_inline" widget="float" options="{'precision': [0,1]}"/> ms
+                    </p>
+                </div>
+                <field name="line_ids" invisible="not generated">
+                    <tree create="false" delete="false" edit="false" limit="500">
+                        <field name="account_code"/>
+                        <field name="account_name"/>
+                        <field name="opening_debit" sum="Total"/>
+                        <field name="opening_credit" sum="Total"/>
+                        <field name="opening_balance" sum="Total"/>
+                        <field name="period_debit" sum="Total"/>
+                        <field name="period_credit" sum="Total"/>
+                        <field name="period_balance" sum="Total"/>
+                        <field name="ending_balance" sum="Total"/>
+                    </tree>
+                </field>
+                <field name="generated" invisible="1"/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_fast_trial_balance_wizard" model="ir.actions.act_window">
+        <field name="name">Fast Trial Balance</field>
+        <field name="res_model">fast.trial.balance.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+    </record>
+
+</odoo>

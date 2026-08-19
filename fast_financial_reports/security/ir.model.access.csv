@@ -1,0 +1,13 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_fast_trial_balance_wizard,fast.trial.balance.wizard,model_fast_trial_balance_wizard,account.group_account_invoice,1,1,1,1
+access_fast_trial_balance_line,fast.trial.balance.line,model_fast_trial_balance_line,account.group_account_invoice,1,1,1,1
+access_fast_general_ledger_wizard,fast.general.ledger.wizard,model_fast_general_ledger_wizard,account.group_account_invoice,1,1,1,1
+access_fast_general_ledger_line,fast.general.ledger.line,model_fast_general_ledger_line,account.group_account_invoice,1,1,1,1
+access_fast_general_ledger_detail_wizard,fast.general.ledger.detail.wizard,model_fast_general_ledger_detail_wizard,account.group_account_invoice,1,1,1,1
+access_fast_general_ledger_detail_line,fast.general.ledger.detail.line,model_fast_general_ledger_detail_line,account.group_account_invoice,1,1,1,1
+access_fast_partner_ledger_wizard,fast.partner.ledger.wizard,model_fast_partner_ledger_wizard,account.group_account_invoice,1,1,1,1
+access_fast_partner_ledger_line,fast.partner.ledger.line,model_fast_partner_ledger_line,account.group_account_invoice,1,1,1,1
+access_fast_partner_ledger_detail_wizard,fast.partner.ledger.detail.wizard,model_fast_partner_ledger_detail_wizard,account.group_account_invoice,1,1,1,1
+access_fast_partner_ledger_detail_line,fast.partner.ledger.detail.line,model_fast_partner_ledger_detail_line,account.group_account_invoice,1,1,1,1
+access_fast_report_debug_log,fast.report.debug.log,model_fast_report_debug_log,fast_financial_reports.group_fast_financial_reports_debug,1,0,0,0
+access_fast_report_debug_log_system,fast.report.debug.log.system,model_fast_report_debug_log,base.group_system,1,1,1,1

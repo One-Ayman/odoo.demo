@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_fast_financial_reports_root"
+              name="Fast Financial Reports"
+              parent="account.menu_finance_reports"
+              sequence="5"
+              groups="account.group_account_invoice"/>
+
+    <menuitem id="menu_fast_trial_balance"
+              name="Trial Balance"
+              parent="menu_fast_financial_reports_root"
+              action="action_fast_trial_balance_wizard"
+              sequence="10"/>
+
+    <menuitem id="menu_fast_general_ledger"
+              name="General Ledger"
+              parent="menu_fast_financial_reports_root"
+              action="action_fast_general_ledger_wizard"
+              sequence="20"/>
+
+    <menuitem id="menu_fast_partner_ledger"
+              name="Partner Ledger"
+              parent="menu_fast_financial_reports_root"
+              action="action_fast_partner_ledger_wizard"
+              sequence="30"/>
+
+    <menuitem id="menu_fast_report_debug_log"
+              name="Fast Reports Performance Log"
+              parent="account.account_reports_management_menu"
+              action="action_fast_report_debug_log"
+              groups="group_fast_financial_reports_debug"
+              sequence="90"/>
+
+</odoo>

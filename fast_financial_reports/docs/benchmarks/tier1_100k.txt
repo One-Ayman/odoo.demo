@@ -1,0 +1,123 @@
+=== TIER: 100,000 lines (existing indexes only) ===
+--- Trial Balance summary query ---
+                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=5669.97..5706.26 rows=23 width=147) (actual time=32.230..35.042 rows=22 loops=1)
+   Buffers: shared hit=2124 dirtied=1
+   ->  Nested Loop  (cost=5669.97..5706.26 rows=23 width=147) (actual time=32.229..35.036 rows=22 loops=1)
+         Join Filter: (aa.id = aml.account_id)
+         Rows Removed by Join Filter: 781
+         Buffers: shared hit=2124 dirtied=1
+         ->  Index Scan using account_account__code_index on account_account aa  (cost=0.14..16.56 rows=47 width=11) (actual time=0.020..0.042 rows=47 loops=1)
+               Buffers: shared hit=7 dirtied=1
+         ->  Materialize  (cost=5669.83..5673.86 rows=23 width=140) (actual time=0.685..0.743 rows=17 loops=47)
+               Buffers: shared hit=2117
+               ->  Finalize GroupAggregate  (cost=5669.83..5673.74 rows=23 width=140) (actual time=32.199..34.897 rows=22 loops=1)
+                     Group Key: aml.account_id
+                     Filter: ((sum(CASE WHEN (aml.date < '2023-01-01'::date) THEN aml.debit ELSE '0'::numeric END) <> '0'::numeric) OR (sum(CASE WHEN (aml.date < '2023-01-01'::date) THEN aml.credit ELSE '0'::numeric END) <> '0'::numeric) OR (sum(CASE WHEN (aml.date >= '2023-01-01'::date) THEN aml.debit ELSE '0'::numeric END) <> '0'::numeric) OR (sum(CASE WHEN (aml.date >= '2023-01-01'::date) THEN aml.credit ELSE '0'::numeric END) <> '0'::numeric))
+                     Buffers: shared hit=2117
+                     ->  Gather Merge  (cost=5669.83..5672.48 rows=23 width=140) (actual time=32.162..34.802 rows=44 loops=1)
+                           Workers Planned: 1
+                           Workers Launched: 1
+                           Buffers: shared hit=2117
+                           ->  Sort  (cost=4669.82..4669.88 rows=23 width=140) (actual time=29.692..29.694 rows=22 loops=2)
+                                 Sort Key: aml.account_id
+                                 Sort Method: quicksort  Memory: 31kB
+                                 Buffers: shared hit=2117
+                                 Worker 0:  Sort Method: quicksort  Memory: 31kB
+                                 ->  Partial HashAggregate  (cost=4668.84..4669.30 rows=23 width=140) (actual time=29.649..29.666 rows=22 loops=2)
+                                       Group Key: aml.account_id
+                                       Batches: 1  Memory Usage: 48kB
+                                       Buffers: shared hit=2110
+                                       Worker 0:  Batches: 1  Memory Usage: 48kB
+                                       ->  Parallel Seq Scan on account_move_line aml  (cost=0.00..3210.69 rows=58326 width=17) (actual time=0.013..14.811 rows=50000 loops=2)
+                                             Filter: ((company_id = ANY ('{1}'::integer[])) AND (date <= '2024-12-31'::date) AND ((display_type IS NULL) OR ((display_type)::text <> ALL ('{line_section,line_note}'::text[]))) AND ((parent_state)::text = 'posted'::text))
+                                             Rows Removed by Filter: 34
+                                             Buffers: shared hit=2110
+ Planning:
+   Buffers: shared hit=558 dirtied=1
+ Planning Time: 1.605 ms
+ Execution Time: 35.271 ms
+(36 rows)
+
+--- Partner Ledger summary query ---
+                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=3487.43..3487.68 rows=100 width=158) (actual time=24.635..24.651 rows=100 loops=1)
+   Buffers: shared hit=1135
+   ->  Sort  (cost=3487.43..3492.42 rows=1999 width=158) (actual time=24.634..24.644 rows=100 loops=1)
+         Sort Key: rp.name
+         Sort Method: top-N heapsort  Memory: 41kB
+         Buffers: shared hit=1135
+         ->  Hash Join  (cost=3345.80..3411.03 rows=1999 width=158) (actual time=22.235..23.988 rows=1855 loops=1)
+               Hash Cond: (aml.partner_id = rp.id)
+               Buffers: shared hit=1132
+               ->  HashAggregate  (cost=3273.90..3333.87 rows=1999 width=140) (actual time=21.352..22.651 rows=1855 loops=1)
+                     Group Key: aml.partner_id
+                     Filter: ((sum(CASE WHEN (aml.date < '2023-01-01'::date) THEN aml.debit ELSE '0'::numeric END) <> '0'::numeric) OR (sum(CASE WHEN (aml.date < '2023-01-01'::date) THEN aml.credit ELSE '0'::numeric END) <> '0'::numeric) OR (sum(CASE WHEN ((aml.date >= '2023-01-01'::date) AND (aml.date <= '2024-12-31'::date)) THEN aml.debit ELSE '0'::numeric END) <> '0'::numeric) OR (sum(CASE WHEN ((aml.date >= '2023-01-01'::date) AND (aml.date <= '2024-12-31'::date)) THEN aml.credit ELSE '0'::numeric END) <> '0'::numeric))
+                     Batches: 1  Memory Usage: 2673kB
+                     Rows Removed by Filter: 2
+                     Buffers: shared hit=1106
+                     ->  Hash Join  (cost=427.41..3196.51 rows=2211 width=17) (actual time=2.299..16.600 rows=5540 loops=1)
+                           Hash Cond: (aml.account_id = aa.id)
+                           Buffers: shared hit=1106
+                           ->  Bitmap Heap Scan on account_move_line aml  (cost=424.78..3094.75 rows=34644 width=21) (actual time=2.229..13.708 rows=35044 loops=1)
+                                 Recheck Cond: (partner_id IS NOT NULL)
+                                 Filter: ((company_id = ANY ('{1}'::integer[])) AND ((display_type IS NULL) OR ((display_type)::text <> ALL ('{line_section,line_note}'::text[]))) AND ((parent_state)::text = 'posted'::text))
+                                 Heap Blocks: exact=1047
+                                 Buffers: shared hit=1104
+                                 ->  Bitmap Index Scan on account_move_line_partner_id_ref_idx  (cost=0.00..416.12 rows=34644 width=0) (actual time=2.084..2.084 rows=35044 loops=1)
+                                       Index Cond: (partner_id IS NOT NULL)
+                                       Buffers: shared hit=57
+                           ->  Hash  (cost=2.59..2.59 rows=3 width=4) (actual time=0.032..0.034 rows=3 loops=1)
+                                 Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                 Buffers: shared hit=2
+                                 ->  Seq Scan on account_account aa  (cost=0.00..2.59 rows=3 width=4) (actual time=0.016..0.028 rows=3 loops=1)
+                                       Filter: ((account_type)::text = ANY ('{asset_receivable,liability_payable}'::text[]))
+                                       Rows Removed by Filter: 44
+                                       Buffers: shared hit=2
+               ->  Hash  (cost=46.40..46.40 rows=2040 width=22) (actual time=0.858..0.860 rows=2040 loops=1)
+                     Buckets: 2048  Batches: 1  Memory Usage: 128kB
+                     Buffers: shared hit=26
+                     ->  Seq Scan on res_partner rp  (cost=0.00..46.40 rows=2040 width=22) (actual time=0.006..0.431 rows=2040 loops=1)
+                           Buffers: shared hit=26
+ Planning:
+   Buffers: shared hit=706
+ Planning Time: 3.224 ms
+ Execution Time: 25.123 ms
+(42 rows)
+
+--- General Ledger detail (single account) query ---
+                                                                                                                             QUERY PLAN                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=17.28..322.85 rows=21 width=99) (actual time=2.211..2.214 rows=21 loops=1)
+   Buffers: shared hit=678
+   ->  Incremental Sort  (cost=17.28..10304.74 rows=707 width=99) (actual time=2.209..2.211 rows=21 loops=1)
+         Sort Key: aml.date, aml.id
+         Presorted Key: aml.date
+         Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB
+         Buffers: shared hit=678
+         ->  Nested Loop Left Join  (cost=0.70..10275.97 rows=707 width=99) (actual time=0.216..2.151 rows=22 loops=1)
+               Buffers: shared hit=669
+               ->  Nested Loop  (cost=0.42..9931.40 rows=707 width=85) (actual time=0.210..2.088 rows=22 loops=1)
+                     Join Filter: (j.id = aml.journal_id)
+                     Rows Removed by Join Filter: 110
+                     Buffers: shared hit=630
+                     ->  Index Scan Backward using account_move_line_date_name_id_idx on account_move_line aml  (cost=0.42..9864.03 rows=707 width=65) (actual time=0.193..2.050 rows=22 loops=1)
+                           Index Cond: ((date >= '2023-01-01'::date) AND (date <= '2024-12-31'::date))
+                           Filter: ((company_id = ANY ('{1}'::integer[])) AND (account_id = ANY ('{1}'::integer[])) AND ((display_type IS NULL) OR ((display_type)::text <> ALL ('{line_section,line_note}'::text[]))) AND ((parent_state)::text = 'posted'::text))
+                           Rows Removed by Filter: 596
+                           Buffers: shared hit=629
+                     ->  Materialize  (cost=0.00..1.10 rows=7 width=28) (actual time=0.001..0.001 rows=6 loops=22)
+                           Buffers: shared hit=1
+                           ->  Seq Scan on account_journal j  (cost=0.00..1.07 rows=7 width=28) (actual time=0.009..0.010 rows=6 loops=1)
+                                 Buffers: shared hit=1
+               ->  Index Scan using res_partner_pkey on res_partner p  (cost=0.28..0.49 rows=1 width=22) (actual time=0.002..0.002 rows=1 loops=22)
+                     Index Cond: (id = aml.partner_id)
+                     Buffers: shared hit=39
+ Planning:
+   Buffers: shared hit=739
+ Planning Time: 2.050 ms
+ Execution Time: 2.304 ms
+(29 rows)
+

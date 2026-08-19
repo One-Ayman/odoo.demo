@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_fast_general_ledger_wizard_form" model="ir.ui.view">
+        <field name="name">fast.general.ledger.wizard.form</field>
+        <field name="model">fast.general.ledger.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Fast General Ledger">
+                <group>
+                    <group>
+                        <field name="company_ids" widget="many2many_tags" options="{'no_create': True}"/>
+                        <field name="date_from"/>
+                        <field name="date_to"/>
+                        <field name="posted_only"/>
+                        <field name="move_type"/>
+                        <field name="reference"/>
+                    </group>
+                    <group>
+                        <field name="account_ids" widget="many2many_tags" options="{'no_create': True}"/>
+                        <field name="journal_ids" widget="many2many_tags" options="{'no_create': True}"/>
+                        <field name="partner_ids" widget="many2many_tags" options="{'no_create': True}"/>
+                        <field name="page_size"/>
+                    </group>
+                </group>
+                <div class="d-flex gap-2">
+                    <button name="action_generate" type="object" string="Generate" class="btn-primary"/>
+                    <button name="action_export_xlsx" type="object" string="Export XLSX"
+                            class="btn-secondary" invisible="not generated"/>
+                    <button name="action_export_pdf" type="object" string="Export PDF"
+                            class="btn-secondary" invisible="not generated"/>
+                </div>
+                <div class="mt-2 mb-2" invisible="not generated">
+                    <div class="d-flex gap-3 align-items-center">
+                        <button name="action_prev_page" type="object" string="&lt;&lt; Previous"
+                                invisible="page &lt;= 1"/>
+                        <span>Page <field name="page" readonly="1" class="oe_inline"/> / <field name="total_page_count" readonly="1" class="oe_inline"/>
+                            (<field name="total_account_count" readonly="1" class="oe_inline"/> accounts)</span>
+                        <button name="action_next_page" type="object" string="Next &gt;&gt;"
+                                invisible="page &gt;= total_page_count"/>
+                    </div>
+                    <p class="text-muted" groups="fast_financial_reports.group_fast_financial_reports_debug">
+                        SQL: <field name="last_sql_time_ms" readonly="1" class="oe_inline" widget="float" options="{'precision': [0,1]}"/> ms -
+                        Total: <field name="last_total_time_ms" readonly="1" class="oe_inline" widget="float" options="{'precision': [0,1]}"/> ms
+                    </p>
+                </div>
+                <field name="line_ids" invisible="not generated">
+                    <tree create="false" delete="false" edit="false" limit="500">
+                        <field name="account_code"/>
+                        <field name="account_name"/>
+                        <field name="opening_balance" sum="Total"/>
+                        <field name="period_debit" sum="Total"/>
+                        <field name="period_credit" sum="Total"/>
+                        <field name="closing_balance" sum="Total"/>
+                        <field name="entry_count"/>
+                        <button name="action_view_transactions" type="object"
+                                string="View Transactions" icon="fa-list"/>
+                    </tree>
+                </field>
+                <field name="generated" invisible="1"/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_fast_general_ledger_detail_wizard_form" model="ir.ui.view">
+        <field name="name">fast.general.ledger.detail.wizard.form</field>
+        <field name="model">fast.general.ledger.detail.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Journal Items">
+                <group>
+                    <field name="account_code"/>
+                    <field name="account_name"/>
+                    <field name="opening_balance"/>
+                </group>
+                <div class="d-flex gap-3 align-items-center">
+                    <button name="action_prev_page" type="object" string="&lt;&lt; Previous"
+                            invisible="not has_prev_page"/>
+                    <span>Page <field name="page_number" readonly="1" class="oe_inline"/></span>
+                    <button name="action_next_page" type="object" string="Next &gt;&gt;"
+                            invisible="not has_next_page"/>
+                </div>
+                <field name="detail_line_ids">
+                    <tree create="false" delete="false" edit="false" limit="500">
+                        <field name="date"/>
+                        <field name="journal_code"/>
+                        <field name="move_name"/>
+                        <field name="ref"/>
+                        <field name="partner_name"/>
+                        <field name="label"/>
+                        <field name="debit" sum="Total"/>
+                        <field name="credit" sum="Total"/>
+                        <field name="running_balance"/>
+                    </tree>
+                </field>
+                <field name="has_prev_page" invisible="1"/>
+                <field name="has_next_page" invisible="1"/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_fast_general_ledger_wizard" model="ir.actions.act_window">
+        <field name="name">Fast General Ledger</field>
+        <field name="res_model">fast.general.ledger.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+    </record>
+
+</odoo>
