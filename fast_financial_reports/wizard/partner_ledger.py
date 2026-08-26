@@ -26,6 +26,11 @@ class FastPartnerLedgerWizard(models.TransientModel):
     (account_type = 'liability_payable') accounts respectively, matching
     what Odoo itself considers a partner's customer or vendor ledger; "All"
     includes both. The Account filter, if set, narrows this further.
+
+    Every Opening/Period/Closing balance is collapsed to its NET value,
+    sign-split back into Debit/Credit (see
+    FastReportSqlMixin._ffr_net_split_sql) - a bucket with both debit and
+    credit movement never shows both sides at once, only its net.
     """
     _name = "fast.partner.ledger.wizard"
     _inherit = "fast.report.sql.mixin"
@@ -38,6 +43,13 @@ class FastPartnerLedgerWizard(models.TransientModel):
     date_from = fields.Date(required=True, default=lambda self: fields.Date.context_today(self).replace(month=1, day=1))
     date_to = fields.Date(required=True, default=fields.Date.context_today)
     partner_ids = fields.Many2many("res.partner", string="Partners")
+    partner_category_ids = fields.Many2many(
+        "res.partner.category", string="Partner Tags",
+        help="Only include partners carrying at least one of the selected "
+             "tags. Selecting several tags matches partners with ANY of "
+             "them (OR), not all of them. Leave empty to include all "
+             "partners regardless of tags.",
+    )
     account_ids = fields.Many2many("account.account", string="Accounts")
     journal_ids = fields.Many2many("account.journal", string="Journals")
     partner_type = fields.Selection(PARTNER_TYPE_SELECTION, default="all", required=True, string="Type")
@@ -52,6 +64,25 @@ class FastPartnerLedgerWizard(models.TransientModel):
     last_sql_time_ms = fields.Float(readonly=True, string="SQL Time (ms)")
     last_total_time_ms = fields.Float(readonly=True, string="Total Time (ms)")
 
+    # Page totals for the PDF's Total row. Computed once in Python from the
+    # already-fetched (bounded, single-page) ``line_ids`` in ``_ffr_refresh``
+    # - no extra SQL query - and stored as real Monetary fields purely so the
+    # QWeb report can render them with ``t-field`` and get the same
+    # locale-correct number formatting (decimal/thousands separator) as
+    # every other amount on the page, instead of a hardcoded '%.2f'.
+    company_currency_id = fields.Many2one("res.currency", compute="_compute_company_currency_id")
+    total_opening_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_opening_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_period_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_period_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_closing_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_closing_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+
+    @api.depends("company_ids")
+    def _compute_company_currency_id(self):
+        for wiz in self:
+            wiz.company_currency_id = self.env.company.currency_id
+
     @api.depends("total_partner_count", "page_size")
     def _compute_total_page_count(self):
         for wiz in self:
@@ -65,6 +96,35 @@ class FastPartnerLedgerWizard(models.TransientModel):
             return SQL("aa.account_type = 'liability_payable'")
         return SQL("aa.account_type IN ('asset_receivable', 'liability_payable')")
 
+    def _ffr_partner_tag_sql(self):
+        """Optional Partner Tag (``res.partner.category``) filter, pushed
+        down as an ``EXISTS`` semi-join against the partner/tag relation
+        table rather than a ``JOIN``.
+
+        ``res_partner_res_partner_category_rel`` is a many-to-many table, so
+        a partner carrying several of the selected tags would make a plain
+        ``JOIN`` return that partner's ``account_move_line`` rows once per
+        matching tag - silently inflating every SUM/COUNT in the report.
+        ``EXISTS`` only ever tests for at least one match and never
+        multiplies the outer row, so this is correct regardless of how many
+        tags overlap. It also short-circuits (stops at the first match) and
+        can use the relation table's ``(partner_id, category_id)`` index
+        (created by the ``res.partner.category_id`` field itself), so it
+        never requires a full scan of the relation table.
+
+        ``self.partner_category_ids`` already accepts multiple tags (OR
+        semantics, i.e. "any of these tags") - the initial UI exposes
+        picking one, but no query/model change is needed to support more.
+        """
+        tag_ids = self.partner_category_ids.ids
+        if not tag_ids:
+            return SQL("1=1")
+        return SQL(
+            "EXISTS (SELECT 1 FROM res_partner_res_partner_category_rel rel "
+            "WHERE rel.partner_id = aml.partner_id AND rel.category_id = ANY(%s))",
+            list(set(tag_ids)),
+        )
+
     def _ffr_where(self, extra_partner_id=None, join_account=True):
         self._ffr_check_dates(self.date_from, self.date_to)
         company_ids = self._ffr_allowed_company_ids(self.company_ids.ids)
@@ -77,13 +137,17 @@ class FastPartnerLedgerWizard(models.TransientModel):
             self._ffr_in_ids_sql("aml.partner_id", partner_ids),
             self._ffr_in_ids_sql("aml.account_id", self.account_ids.ids),
             self._ffr_in_ids_sql("aml.journal_id", self.journal_ids.ids),
+            self._ffr_partner_tag_sql(),
         ]
         if join_account:
             conditions.append(self._ffr_account_type_sql())
         return SQL(" AND ").join(conditions), company_ids
 
-    def _ffr_export_sql(self):
-        """Full (unpaginated) partner-summary result set, for XLSX export."""
+    def _ffr_grouped_sql(self):
+        """(grouped_sql, having_sql, company_ids) shared by the interactive
+        query and the XLSX export - gross debit/credit sums per bucket,
+        net-split at the final SELECT layer (see ``_ffr_net_split_select``)
+        so the two never drift apart."""
         where_sql, company_ids = self._ffr_where()
         filtered_sql = SQL(
             "SELECT aml.partner_id, aml.debit, aml.credit, aml.date "
@@ -94,32 +158,49 @@ class FastPartnerLedgerWizard(models.TransientModel):
         )
         grouped_sql = SQL(
             "SELECT partner_id, "
-            "SUM(CASE WHEN date < %s THEN debit ELSE 0 END) AS opening_debit, "
-            "SUM(CASE WHEN date < %s THEN credit ELSE 0 END) AS opening_credit, "
-            "SUM(CASE WHEN date BETWEEN %s AND %s THEN debit ELSE 0 END) AS period_debit, "
-            "SUM(CASE WHEN date BETWEEN %s AND %s THEN credit ELSE 0 END) AS period_credit, "
-            "COUNT(*) FILTER (WHERE date BETWEEN %s AND %s) AS entry_count "
+            "SUM(CASE WHEN date < %s THEN debit ELSE 0 END) AS opening_debit_gross, "
+            "SUM(CASE WHEN date < %s THEN credit ELSE 0 END) AS opening_credit_gross, "
+            "SUM(CASE WHEN date BETWEEN %s AND %s THEN debit ELSE 0 END) AS period_debit_gross, "
+            "SUM(CASE WHEN date BETWEEN %s AND %s THEN credit ELSE 0 END) AS period_credit_gross "
             "FROM (%s) filtered "
             "GROUP BY partner_id",
             self.date_from, self.date_from,
             self.date_from, self.date_to,
             self.date_from, self.date_to,
-            self.date_from, self.date_to,
             filtered_sql,
         )
         having_sql = SQL(
-            "WHERE g.opening_debit != 0 OR g.opening_credit != 0 "
-            "OR g.period_debit != 0 OR g.period_credit != 0"
+            "WHERE g.opening_debit_gross != 0 OR g.opening_credit_gross != 0 "
+            "OR g.period_debit_gross != 0 OR g.period_credit_gross != 0"
         )
+        return grouped_sql, having_sql, company_ids
+
+    def _ffr_net_split_select(self):
+        """The six net-split Debit/Credit SQL fragments (Opening, Period,
+        Closing), reused identically by the interactive query and the
+        XLSX export."""
+        opening_net = SQL("g.opening_debit_gross - g.opening_credit_gross")
+        period_net = SQL("g.period_debit_gross - g.period_credit_gross")
+        closing_net = SQL("(%s) + (%s)", opening_net, period_net)
+        opening_debit, opening_credit = self._ffr_net_split_sql(opening_net)
+        period_debit, period_credit = self._ffr_net_split_sql(period_net)
+        closing_debit, closing_credit = self._ffr_net_split_sql(closing_net)
         return SQL(
-            "SELECT rp.name AS partner_name, "
-            "g.opening_debit, g.opening_credit, (g.opening_debit - g.opening_credit) AS opening_balance, "
-            "g.period_debit, g.period_credit, "
-            "(g.opening_debit - g.opening_credit + g.period_debit - g.period_credit) AS closing_balance, "
-            "g.entry_count "
+            "%s AS opening_debit, %s AS opening_credit, "
+            "%s AS period_debit, %s AS period_credit, "
+            "%s AS closing_debit, %s AS closing_credit",
+            opening_debit, opening_credit, period_debit, period_credit,
+            closing_debit, closing_credit,
+        )
+
+    def _ffr_export_sql(self):
+        """Full (unpaginated) partner-summary result set, for XLSX export."""
+        grouped_sql, having_sql, company_ids = self._ffr_grouped_sql()
+        return SQL(
+            "SELECT rp.name AS partner_name, %s "
             "FROM (%s) g JOIN res_partner rp ON rp.id = g.partner_id %s "
             "ORDER BY rp.name",
-            grouped_sql, having_sql,
+            self._ffr_net_split_select(), grouped_sql, having_sql,
         ), company_ids
 
     def action_generate(self):
@@ -142,37 +223,7 @@ class FastPartnerLedgerWizard(models.TransientModel):
     def _ffr_refresh(self):
         self.ensure_one()
         t0 = time.perf_counter()
-        where_sql, company_ids = self._ffr_where()
-
-        # account_type only exists on account_account, so this query always
-        # joins it (needed for both the type filter and, for detail lines,
-        # is skipped there since a single account is already known).
-        filtered_sql = SQL(
-            "SELECT aml.partner_id, aml.debit, aml.credit, aml.date "
-            "FROM account_move_line aml "
-            "JOIN account_account aa ON aa.id = aml.account_id "
-            "WHERE %s",
-            where_sql,
-        )
-        grouped_sql = SQL(
-            "SELECT partner_id, "
-            "SUM(CASE WHEN date < %s THEN debit ELSE 0 END) AS opening_debit, "
-            "SUM(CASE WHEN date < %s THEN credit ELSE 0 END) AS opening_credit, "
-            "SUM(CASE WHEN date BETWEEN %s AND %s THEN debit ELSE 0 END) AS period_debit, "
-            "SUM(CASE WHEN date BETWEEN %s AND %s THEN credit ELSE 0 END) AS period_credit, "
-            "COUNT(*) FILTER (WHERE date BETWEEN %s AND %s) AS entry_count "
-            "FROM (%s) filtered "
-            "GROUP BY partner_id",
-            self.date_from, self.date_from,
-            self.date_from, self.date_to,
-            self.date_from, self.date_to,
-            self.date_from, self.date_to,
-            filtered_sql,
-        )
-        having_sql = SQL(
-            "WHERE g.opening_debit != 0 OR g.opening_credit != 0 "
-            "OR g.period_debit != 0 OR g.period_credit != 0"
-        )
+        grouped_sql, having_sql, company_ids = self._ffr_grouped_sql()
 
         size = int(self.page_size)
         offset = (self.page - 1) * size
@@ -180,19 +231,16 @@ class FastPartnerLedgerWizard(models.TransientModel):
         total = self._ffr_execute_scalar(count_sql) or 0
 
         final_sql = SQL(
-            "SELECT g.partner_id, rp.name AS partner_name, "
-            "g.opening_debit, g.opening_credit, g.period_debit, g.period_credit, g.entry_count "
+            "SELECT g.partner_id, rp.name AS partner_name, %s "
             "FROM (%s) g JOIN res_partner rp ON rp.id = g.partner_id %s "
             "ORDER BY rp.name LIMIT %s OFFSET %s",
-            grouped_sql, having_sql, size, offset,
+            self._ffr_net_split_select(), grouped_sql, having_sql, size, offset,
         )
         rows, sql_time_ms = self._ffr_execute(final_sql)
 
         self.line_ids.unlink()
         vals_list = []
         for seq, row in enumerate(rows):
-            opening_balance = row["opening_debit"] - row["opening_credit"]
-            period_balance = row["period_debit"] - row["period_credit"]
             vals_list.append({
                 "wizard_id": self.id,
                 "sequence": seq,
@@ -200,11 +248,10 @@ class FastPartnerLedgerWizard(models.TransientModel):
                 "partner_name": row["partner_name"],
                 "opening_debit": row["opening_debit"],
                 "opening_credit": row["opening_credit"],
-                "opening_balance": opening_balance,
                 "period_debit": row["period_debit"],
                 "period_credit": row["period_credit"],
-                "closing_balance": opening_balance + period_balance,
-                "entry_count": row["entry_count"],
+                "closing_debit": row["closing_debit"],
+                "closing_credit": row["closing_credit"],
             })
         if vals_list:
             self.env["fast.partner.ledger.line"].create(vals_list)
@@ -215,6 +262,14 @@ class FastPartnerLedgerWizard(models.TransientModel):
             "generated": True,
             "last_sql_time_ms": sql_time_ms,
             "last_total_time_ms": total_time_ms,
+            # Sums over this page's already-fetched vals_list (bounded by
+            # page_size) - not a new query.
+            "total_opening_debit": sum(v["opening_debit"] for v in vals_list),
+            "total_opening_credit": sum(v["opening_credit"] for v in vals_list),
+            "total_period_debit": sum(v["period_debit"] for v in vals_list),
+            "total_period_credit": sum(v["period_credit"] for v in vals_list),
+            "total_closing_debit": sum(v["closing_debit"] for v in vals_list),
+            "total_closing_credit": sum(v["closing_credit"] for v in vals_list),
         })
         self._ffr_log_debug(
             report_type="partner_ledger_summary",
@@ -224,6 +279,7 @@ class FastPartnerLedgerWizard(models.TransientModel):
                 "date_from": str(self.date_from), "date_to": str(self.date_to),
                 "partner_ids": self.partner_ids.ids, "account_ids": self.account_ids.ids,
                 "journal_ids": self.journal_ids.ids, "partner_type": self.partner_type,
+                "partner_category_ids": self.partner_category_ids.ids,
                 "posted_only": self.posted_only, "page": self.page, "page_size": self.page_size,
             },
             sql_time_ms=sql_time_ms,
@@ -264,11 +320,10 @@ class FastPartnerLedgerLine(models.TransientModel):
     partner_name = fields.Char(readonly=True)
     opening_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
     opening_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
-    opening_balance = fields.Monetary(readonly=True, currency_field="company_currency_id")
     period_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
     period_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
-    closing_balance = fields.Monetary(readonly=True, currency_field="company_currency_id")
-    entry_count = fields.Integer(readonly=True)
+    closing_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    closing_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
     company_currency_id = fields.Many2one("res.currency", compute="_compute_company_currency_id")
 
     @api.depends("wizard_id")
@@ -282,7 +337,10 @@ class FastPartnerLedgerLine(models.TransientModel):
             "parent_wizard_id": self.wizard_id.id,
             "partner_id": self.partner_id.id,
             "partner_name": self.partner_name,
-            "opening_balance": self.opening_balance,
+            # opening_debit/opening_credit are this line's sign-split NET
+            # opening balance display, not two separate movements -
+            # recombine them to seed the detail's running balance.
+            "opening_balance": self.opening_debit - self.opening_credit,
         })
         detail.action_load_first_page()
         return {

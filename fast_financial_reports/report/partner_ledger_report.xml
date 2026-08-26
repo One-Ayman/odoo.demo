@@ -1,45 +1,181 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <record id="paperformat_partner_ledger_landscape" model="report.paperformat">
+        <field name="name">Fast Partner Ledger (A4 Landscape)</field>
+        <field name="default" eval="False"/>
+        <field name="format">A4</field>
+        <field name="orientation">Landscape</field>
+        <field name="page_height">0</field>
+        <field name="page_width">0</field>
+        <field name="margin_top">15</field>
+        <field name="margin_bottom">20</field>
+        <field name="margin_left">8</field>
+        <field name="margin_right">8</field>
+        <field name="header_line" eval="False"/>
+        <field name="header_spacing">10</field>
+        <field name="dpi">90</field>
+    </record>
+
     <record id="action_report_partner_ledger" model="ir.actions.report">
         <field name="name">Partner Ledger</field>
         <field name="model">fast.partner.ledger.wizard</field>
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">fast_financial_reports.report_partner_ledger_document</field>
         <field name="print_report_name">'Partner Ledger - %s' % (object.date_to)</field>
+        <field name="paperformat_id" ref="paperformat_partner_ledger_landscape"/>
     </record>
 
     <template id="report_partner_ledger_document">
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="doc">
-                <t t-call="web.internal_layout">
-                    <div class="page">
-                        <h2>Partner Ledger</h2>
-                        <p>
-                            Period: <span t-esc="doc.date_from"/> to <span t-esc="doc.date_to"/>
-                            (page <span t-esc="doc.page"/> / <span t-esc="doc.total_page_count"/>)
-                        </p>
-                        <table class="table table-sm table-bordered">
+                <!-- Current user's language direction (res.lang.direction: 'ltr'/'rtl') drives
+                     the whole page - never a hardcoded language check. Partner names come
+                     straight from res_partner.name (a plain, non-translated Char column - see
+                     _ffr_where()/wizard SQL), so there is no translated-JSONB dict to leak here;
+                     only the static labels below are translated, via this module's i18n/*.po
+                     files and Odoo's own QWeb text-extraction.
+
+                     CSS notes (this environment's wkhtmltopdf is an unpatched-Qt build; both
+                     confirmed real, reproducible with it):
+                     - Modern CSS logical properties (text-align:start, border-inline-start)
+                       are NOT used below - this engine does not resolve them, silently
+                       dropping the rule. Physical left/right is chosen explicitly per element
+                       from ffr_dir instead.
+                     - A small label/value table (the filter meta-line) mixing RTL label text
+                       with an LTR date on the same row corrupts adjacent cells in this engine
+                       when the table itself is dir="rtl". The fix that reliably works is
+                       dir="ltr" on that table with cells manually placed in the order that
+                       yields the correct final reading order, mirroring the already-approved
+                       Partner Ledger PDF preview. The main 7-column data table (partner +
+                       3 debit/credit pairs) does not need this - a plain dir="rtl" table
+                       renders it correctly, as already verified in that same preview. -->
+                <t t-set="ffr_lang" t-value="doc.env['res.lang']._lang_get(doc.env.lang)"/>
+                <t t-set="ffr_dir" t-value="(ffr_lang.direction if ffr_lang else False) or 'ltr'"/>
+                <t t-set="ffr_rtl" t-value="ffr_dir == 'rtl'"/>
+                <t t-set="ffr_align" t-value="'right' if ffr_rtl else 'left'"/>
+                <t t-set="ffr_border_side" t-value="'right' if ffr_rtl else 'left'"/>
+                <t t-call="web.external_layout">
+                    <div class="page ffr-pl-page" t-att-dir="ffr_dir">
+                        <style>
+                            .ffr-pl-page { font-family: "Noto Naskh Arabic", "Noto Sans Arabic", "Lato", Arial, sans-serif; }
+                            .ffr-pl-meta { font-size: 9px; color: #444; margin-top: 2px; border-collapse: collapse; table-layout: fixed; }
+                            .ffr-pl-meta td { border: none; padding: 0; white-space: nowrap; }
+                            .ffr-pl-meta td.ffr-label { color: #777; }
+                            .ffr-pl-table { table-layout: fixed; width: 100%; border-collapse: collapse; margin-top: 8px; }
+                            .ffr-pl-table col.ffr-col-partner { width: auto; }
+                            .ffr-pl-table col.ffr-col-num { width: 11.5%; }
+                            .ffr-pl-table th, .ffr-pl-table td { border: 0.5pt solid #b9c2d0; padding: 4px 6px; vertical-align: top; }
+                            .ffr-pl-table thead th { background: #2c3e6b; color: #fff; font-size: 8.5pt; text-align: center; }
+                            .ffr-pl-table thead tr.ffr-sub th { background: #3f5490; font-size: 8pt; font-weight: 500; }
+                            .ffr-pl-table tbody td.ffr-name { word-wrap: break-word; overflow-wrap: break-word; }
+                            .ffr-pl-table tbody td.ffr-num { text-align: center; direction: ltr; white-space: nowrap; }
+                            .ffr-pl-table tbody tr:nth-child(even) { background: #f4f6fb; }
+                            .ffr-pl-table tfoot td.ffr-num { font-weight: 700; text-align: center; direction: ltr; background: #e7ebf5; }
+                        </style>
+
+                        <h2><span>Partner Ledger</span></h2>
+
+                        <!-- Filter meta-line: dir="ltr" wrapper with cells pre-ordered so the
+                             final reading order is correct in both directions (see note above).
+                             Each cell is given a generous static width (table-layout:fixed)
+                             rather than relying on this engine's auto intrinsic-width
+                             calculation, which was found to miscompute box boundaries next to
+                             an RTL/LTR content change (e.g. a long company name overlapping
+                             the adjacent label) even with per-cell dir set. -->
+                        <table class="ffr-pl-meta" dir="ltr" style="margin-left:auto;">
+                            <tr t-if="ffr_rtl">
+                                <td t-attf-style="text-align: right; padding-left: 16px; width: 220px;">
+                                    <span t-if="doc.posted_only">Posted Entries Only</span>
+                                    <span t-else="">All Entries (Posted and Draft)</span>
+                                </td>
+                                <td t-if="doc.partner_category_ids" t-attf-style="text-align: right; padding-left: 4px; width: 150px;">
+                                    <span t-esc="', '.join(doc.partner_category_ids.mapped('name'))"/>
+                                </td>
+                                <td t-if="doc.partner_category_ids" class="ffr-label" t-attf-style="text-align: right; padding-left: 16px; width: 60px;">
+                                    <span>Tags:</span>
+                                </td>
+                                <td t-attf-style="text-align: right; padding-left: 4px; width: 260px;">
+                                    <span t-esc="', '.join(doc.company_ids.mapped('name'))"/>
+                                </td>
+                                <td class="ffr-label" t-attf-style="text-align: right; padding-left: 16px; width: 90px;">
+                                    <span>Companies:</span>
+                                </td>
+                                <td dir="ltr" t-attf-style="text-align: right; padding-left: 4px; direction: ltr; width: 170px;">
+                                    <span t-field="doc.date_from"/> &#8211; <span t-field="doc.date_to"/>
+                                </td>
+                                <td class="ffr-label" t-attf-style="text-align: right; width: 70px;">
+                                    <span>Period:</span>
+                                </td>
+                            </tr>
+                            <tr t-else="">
+                                <td class="ffr-label" t-attf-style="text-align: left; padding-right: 4px; width: 50px;">
+                                    <span>Period:</span>
+                                </td>
+                                <td dir="ltr" t-attf-style="text-align: left; padding-right: 16px; width: 170px;">
+                                    <span t-field="doc.date_from"/> &#8211; <span t-field="doc.date_to"/>
+                                </td>
+                                <td class="ffr-label" t-attf-style="text-align: left; padding-right: 4px; width: 90px;">
+                                    <span>Companies:</span>
+                                </td>
+                                <td t-attf-style="text-align: left; padding-right: 16px; width: 260px;">
+                                    <span t-esc="', '.join(doc.company_ids.mapped('name'))"/>
+                                </td>
+                                <td t-if="doc.partner_category_ids" class="ffr-label" t-attf-style="text-align: left; padding-right: 4px; width: 60px;">
+                                    <span>Tags:</span>
+                                </td>
+                                <td t-if="doc.partner_category_ids" t-attf-style="text-align: left; padding-right: 16px; width: 150px;">
+                                    <span t-esc="', '.join(doc.partner_category_ids.mapped('name'))"/>
+                                </td>
+                                <td t-attf-style="text-align: left; width: 220px;">
+                                    <span t-if="doc.posted_only">Posted Entries Only</span>
+                                    <span t-else="">All Entries (Posted and Draft)</span>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <table class="ffr-pl-table" t-attf-style="direction: #{ffr_dir};">
+                            <colgroup>
+                                <col class="ffr-col-partner"/>
+                                <col class="ffr-col-num"/><col class="ffr-col-num"/>
+                                <col class="ffr-col-num"/><col class="ffr-col-num"/>
+                                <col class="ffr-col-num"/><col class="ffr-col-num"/>
+                            </colgroup>
                             <thead>
                                 <tr>
-                                    <th>Partner</th>
-                                    <th class="text-end">Opening Balance</th>
-                                    <th class="text-end">Debit</th>
-                                    <th class="text-end">Credit</th>
-                                    <th class="text-end">Closing Balance</th>
-                                    <th class="text-end">Entries</th>
+                                    <th rowspan="2" t-attf-style="text-align: #{ffr_align};"><span>Partner</span></th>
+                                    <th colspan="2" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Opening Balance</span></th>
+                                    <th colspan="2" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Period</span></th>
+                                    <th colspan="2" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Closing Balance</span></th>
+                                </tr>
+                                <tr class="ffr-sub">
+                                    <th t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Debit</span></th><th><span>Credit</span></th>
+                                    <th t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Debit</span></th><th><span>Credit</span></th>
+                                    <th t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Debit</span></th><th><span>Credit</span></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr t-foreach="doc.line_ids" t-as="line">
-                                    <td><span t-esc="line.partner_name"/></td>
-                                    <td class="text-end"><span t-esc="'%.2f' % line.opening_balance"/></td>
-                                    <td class="text-end"><span t-esc="'%.2f' % line.period_debit"/></td>
-                                    <td class="text-end"><span t-esc="'%.2f' % line.period_credit"/></td>
-                                    <td class="text-end"><span t-esc="'%.2f' % line.closing_balance"/></td>
-                                    <td class="text-end"><span t-esc="line.entry_count"/></td>
+                                    <td class="ffr-name" t-attf-style="text-align: #{ffr_align};" t-out="doc._ffr_wrap_html_lines(line.partner_name)"/>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="line.opening_debit"/></td>
+                                    <td class="ffr-num"><span t-field="line.opening_credit"/></td>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="line.period_debit"/></td>
+                                    <td class="ffr-num"><span t-field="line.period_credit"/></td>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="line.closing_debit"/></td>
+                                    <td class="ffr-num"><span t-field="line.closing_credit"/></td>
                                 </tr>
                             </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td t-attf-style="font-weight: 700; text-align: #{ffr_align};"><span>Total</span></td>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="doc.total_opening_debit"/></td>
+                                    <td class="ffr-num"><span t-field="doc.total_opening_credit"/></td>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="doc.total_period_debit"/></td>
+                                    <td class="ffr-num"><span t-field="doc.total_period_credit"/></td>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="doc.total_closing_debit"/></td>
+                                    <td class="ffr-num"><span t-field="doc.total_closing_credit"/></td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
                 </t>

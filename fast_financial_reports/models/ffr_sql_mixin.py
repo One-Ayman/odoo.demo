@@ -18,12 +18,56 @@ Design rules enforced here (see module README, section "SQL architecture"):
 """
 import json
 import logging
+import re
+import textwrap
 import time
 from contextlib import contextmanager
+
+from markupsafe import Markup, escape
 
 from odoo import _, models
 from odoo.exceptions import AccessError, UserError
 from odoo.tools.sql import SQL
+
+#: Conservative character budget for one PDF table-cell line, used by
+#: ``_ffr_wrap_html_lines()`` below. Deliberately script-agnostic (counts
+#: characters, not pixels).
+FFR_PDF_WRAP_WIDTH = 42
+
+#: Noto Sans Arabic glyphs render measurably wider than Latin glyphs at the
+#: same point size in this environment's wkhtmltopdf build, so a
+#: Latin-calibrated line can overflow its column when the line is Arabic -
+#: confirmed by comparing textwrap output against actual rendered PDF
+#: pixels. Lines containing any Arabic character use this smaller,
+#: empirically-safe budget instead of ``FFR_PDF_WRAP_WIDTH``.
+FFR_PDF_WRAP_WIDTH_AR = 28
+_ARABIC_RE = re.compile(r"[؀-ۿ]")
+
+#: A matched "(...)" pair that ends up split across two DIFFERENT
+#: <br/>-separated lines corrupts/clips in this environment's wkhtmltopdf
+#: build (confirmed via an extensive isolated repro matrix - fonts,
+#: <bdi>, separate <div>s, separate table rows, and Unicode FSI/PDI
+#: isolates all failed to fix it; the only thing that mattered was
+#: whether "(" and its matching ")" landed on the same rendered line).
+#: The fix: never let textwrap's word-boundary splitting break inside a
+#: parenthetical - glue its internal spaces to a placeholder before
+#: wrapping, then restore them, so "(word word)" is always treated as one
+#: unbreakable unit and the pair always stays together on one line
+#: (unless the parenthetical itself is longer than the whole line width,
+#: in which case gluing it would force an arbitrary mid-word break that is
+#: worse than the bug being fixed, so it is left breakable instead - the
+#: per-line <bdi> isolation below independently protects that case).
+_PAREN_RE = re.compile(r"\([^()]*\)")
+_PAREN_GLUE = "\x01"
+
+#: Matches a run of ASCII digits so it can be isolated from surrounding
+#: RTL text. This environment's wkhtmltopdf bidi algorithm corrupts/
+#: overlaps a line that mixes Arabic text with an embedded Western-digit
+#: run (e.g. "فرع 101 جدة") - even on a single unwrapped line - unless the
+#: digit run is wrapped in ``<bdi dir="ltr">``. Has no visible effect on
+#: pure-English or pure-Arabic (no-digit) text, so it is applied
+#: unconditionally.
+_DIGIT_RUN_RE = re.compile(r"\d+")
 
 _logger = logging.getLogger(__name__)
 
@@ -100,6 +144,26 @@ class FastReportSqlMixin(models.AbstractModel):
         column = SQL(column_sql)
         return SQL("COALESCE(%s->>%s, %s->>'en_US')", column, lang, column)
 
+    def _ffr_net_split_sql(self, net_expr):
+        """Collapse a net (already-signed) amount expression into a
+        ``(debit_sql, credit_sql)`` pair of SQL fragments where exactly
+        one side is non-zero, computed at the database level with
+        ``GREATEST(..., 0)``.
+
+        Every Opening/Period/Ending (or Closing) balance surfaced by this
+        module must show the NET balance only - never the gross debit and
+        gross credit movements side by side. e.g. a bucket with 10,000
+        debit and 7,000 credit must show Debit=3,000 / Credit=0, not
+        Debit=10,000 / Credit=7,000. Pass the *net* expression (a gross
+        debit sum minus a gross credit sum, or a sum of such nets) and
+        this returns the two display columns; it is not itself a gross
+        debit/credit pair.
+        """
+        return (
+            SQL("GREATEST(%s, 0)", net_expr),
+            SQL("GREATEST(-(%s), 0)", net_expr),
+        )
+
     def _ffr_analytic_sql(self, analytic_account_id):
         """Optional analytic account filter.
 
@@ -124,6 +188,69 @@ class FastReportSqlMixin(models.AbstractModel):
             r"""regexp_split_to_array(jsonb_path_query_array(aml.analytic_distribution, '$.keyvalue()."key"')::text, '\D+')"""
         )
         return SQL("%s && %s", array_expr, [str(analytic_account_id)])
+
+    # ------------------------------------------------------------------
+    # PDF presentation helpers
+    # ------------------------------------------------------------------
+    def _ffr_wrap_html_lines(self, text, width=FFR_PDF_WRAP_WIDTH):
+        """Pre-wrap ``text`` into ``<br/>``-separated lines and return a
+        ``Markup``-safe HTML fragment, for use with ``t-out`` in a PDF
+        report cell.
+
+        This environment's wkhtmltopdf build does not reliably apply CSS
+        ``word-wrap``/``overflow-wrap`` line-breaking to right-to-left
+        (Arabic) text inside a ``table-layout: fixed`` cell: long RTL text
+        was verified (isolated, minimal, standalone reproduction outside
+        Odoo entirely) to silently overflow/clip past the column boundary
+        on one line instead of wrapping - CSS-only fixes (fixed vs. auto
+        layout, nested spans, ``word-break: break-all``, explicit
+        zero-width-space break hints) all failed to change this. Computing
+        the line breaks here in Python and emitting literal ``<br/>`` tags
+        sidesteps the browser's line-breaking algorithm entirely, so it
+        works the same way regardless of script/direction.
+
+        Three further, independently-reproduced rendering defects in this
+        same wkhtmltopdf build are also worked around here (see the
+        preview investigation this was derived from):
+        1. Arabic lines need a narrower character budget than Latin ones
+           (``FFR_PDF_WRAP_WIDTH_AR``) - Arabic glyphs render wider at the
+           same point size, so the Latin-calibrated width can overflow.
+        2. A matched "(...)" pair split across two wrapped lines corrupts/
+           clips - avoided by keeping a parenthetical that still fits on
+           one line glued together (see ``_PAREN_RE``/``_PAREN_GLUE``).
+        3. Arabic text with an embedded Western-digit run corrupts even on
+           a single line, and a long English name that wraps across a
+           parenthetical has its parentheses swap visual position - both
+           fixed by isolating the digit run and each whole output line in
+           ``<bdi>`` elements.
+
+        Each output line is HTML-escaped individually before any ``<bdi>``
+        wrapping, so this is safe to mark as HTML even though ``text`` is
+        untrusted user/partner data.
+        """
+        text = text or ""
+        effective_width = FFR_PDF_WRAP_WIDTH_AR if _ARABIC_RE.search(text) else width
+
+        def _glue_paren(match):
+            span = match.group(0)
+            if len(span) <= effective_width:
+                return span.replace(" ", _PAREN_GLUE)
+            return span
+
+        glued = _PAREN_RE.sub(_glue_paren, text)
+        lines = textwrap.wrap(
+            glued, width=effective_width, break_long_words=True, break_on_hyphens=False,
+        ) or [""]
+        lines = [line.replace(_PAREN_GLUE, " ") for line in lines]
+
+        out_lines = []
+        for line in lines:
+            escaped = str(escape(line))
+            isolated = _DIGIT_RUN_RE.sub(
+                lambda m: '<bdi dir="ltr">%s</bdi>' % m.group(0), escaped,
+            )
+            out_lines.append("<bdi>%s</bdi>" % isolated)
+        return Markup("<br/>".join(out_lines))
 
     # ------------------------------------------------------------------
     # Execution helpers

@@ -24,10 +24,14 @@ class FastGeneralLedgerWizard(models.TransientModel):
     """Fast General Ledger - step 1: account summaries only.
 
     Exactly like the Trial Balance query (see wizard/trial_balance.py for
-    the full explanation), except grouping additionally exposes an
-    "Ending Balance" and "Entry Count" per account. Transaction-level detail
-    is intentionally NOT queried here: it is only fetched, one account at a
-    time, when the user opens that account (see FastGeneralLedgerDetailWizard).
+    the full explanation), except the summary is followed by a two-tier
+    drill-down: transaction-level detail is intentionally NOT queried
+    here, it is only fetched, one account at a time, when the user opens
+    that account (see FastGeneralLedgerDetailWizard). Every Opening/
+    Period/Ending balance is collapsed to its NET value, sign-split back
+    into Debit/Credit (see FastReportSqlMixin._ffr_net_split_sql) -
+    a bucket with both debit and credit movement never shows both sides
+    at once, only its net.
     """
     _name = "fast.general.ledger.wizard"
     _inherit = "fast.report.sql.mixin"
@@ -54,6 +58,23 @@ class FastGeneralLedgerWizard(models.TransientModel):
 
     last_sql_time_ms = fields.Float(readonly=True, string="SQL Time (ms)")
     last_total_time_ms = fields.Float(readonly=True, string="Total Time (ms)")
+
+    # Page totals for the PDF's Total row - same pattern as Trial Balance
+    # and Partner Ledger: computed once in Python from the already-fetched
+    # (bounded, single-page) ``line_ids`` in ``_ffr_refresh``, no extra
+    # SQL query.
+    company_currency_id = fields.Many2one("res.currency", compute="_compute_company_currency_id")
+    total_opening_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_opening_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_period_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_period_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_ending_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_ending_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+
+    @api.depends("company_ids")
+    def _compute_company_currency_id(self):
+        for wiz in self:
+            wiz.company_currency_id = self.env.company.currency_id
 
     @api.depends("total_account_count", "page_size")
     def _compute_total_page_count(self):
@@ -103,8 +124,12 @@ class FastGeneralLedgerWizard(models.TransientModel):
         ]
         return SQL(" AND ").join(conditions)
 
-    def _ffr_export_sql(self):
-        """Full (unpaginated) account-summary result set, for XLSX export."""
+    def _ffr_grouped_sql(self):
+        """(grouped_sql, having_sql) shared by the interactive query and
+        the XLSX export - opening is already a single NET value (SUM(debit)
+        - SUM(credit)); period stays as gross debit/credit so it can be
+        net-split identically to opening at the final SELECT layer (see
+        ``_ffr_net_split_select``)."""
         where_sql, company_ids, needs_join = self._ffr_where()
         opening_where_sql = self._ffr_opening_where()
         join_sql = SQL("JOIN account_move am ON am.id = aml.move_id") if needs_join else SQL("")
@@ -115,28 +140,52 @@ class FastGeneralLedgerWizard(models.TransientModel):
             opening_where_sql,
         )
         period_sql = SQL(
-            "SELECT aml.account_id, SUM(aml.debit) AS period_debit, SUM(aml.credit) AS period_credit, "
-            "COUNT(*) AS entry_count "
+            "SELECT aml.account_id, SUM(aml.debit) AS period_debit_gross, SUM(aml.credit) AS period_credit_gross "
             "FROM account_move_line aml %s WHERE %s GROUP BY aml.account_id",
             join_sql, where_sql,
         )
+        # FULL OUTER JOIN: an account can have an opening balance with zero
+        # movement this period, or movement this period with no prior
+        # opening balance - both must appear.
         grouped_sql = SQL(
             "SELECT COALESCE(o.account_id, p.account_id) AS account_id, "
             "COALESCE(o.opening_balance, 0) AS opening_balance, "
-            "COALESCE(p.period_debit, 0) AS period_debit, "
-            "COALESCE(p.period_credit, 0) AS period_credit, "
-            "COALESCE(p.entry_count, 0) AS entry_count "
+            "COALESCE(p.period_debit_gross, 0) AS period_debit_gross, "
+            "COALESCE(p.period_credit_gross, 0) AS period_credit_gross "
             "FROM (%s) o FULL OUTER JOIN (%s) p ON p.account_id = o.account_id",
             opening_sql, period_sql,
         )
-        having_sql = SQL("WHERE g.opening_balance != 0 OR g.period_debit != 0 OR g.period_credit != 0")
+        having_sql = SQL(
+            "WHERE g.opening_balance != 0 OR g.period_debit_gross != 0 OR g.period_credit_gross != 0"
+        )
+        return grouped_sql, having_sql, company_ids
+
+    def _ffr_net_split_select(self):
+        """The six net-split Debit/Credit SQL fragments (Opening, Period,
+        Ending), reused identically by the interactive query and the
+        XLSX export."""
+        period_net = SQL("g.period_debit_gross - g.period_credit_gross")
+        ending_net = SQL("g.opening_balance + (%s)", period_net)
+        opening_debit, opening_credit = self._ffr_net_split_sql(SQL("g.opening_balance"))
+        period_debit, period_credit = self._ffr_net_split_sql(period_net)
+        ending_debit, ending_credit = self._ffr_net_split_sql(ending_net)
         return SQL(
-            "SELECT aa.code AS account_code, %s AS account_name, "
-            "g.opening_balance, g.period_debit, g.period_credit, "
-            "(g.opening_balance + g.period_debit - g.period_credit) AS closing_balance, g.entry_count "
+            "%s AS opening_debit, %s AS opening_credit, "
+            "%s AS period_debit, %s AS period_credit, "
+            "%s AS ending_debit, %s AS ending_credit",
+            opening_debit, opening_credit, period_debit, period_credit,
+            ending_debit, ending_credit,
+        )
+
+    def _ffr_export_sql(self):
+        """Full (unpaginated) account-summary result set, for XLSX export."""
+        grouped_sql, having_sql, company_ids = self._ffr_grouped_sql()
+        return SQL(
+            "SELECT aa.code AS account_code, %s AS account_name, %s "
             "FROM (%s) g JOIN account_account aa ON aa.id = g.account_id %s "
             "ORDER BY aa.code",
-            self._ffr_translated_sql("aa.name"), grouped_sql, having_sql,
+            self._ffr_translated_sql("aa.name"), self._ffr_net_split_select(),
+            grouped_sql, having_sql,
         ), company_ids
 
     def action_generate(self):
@@ -159,34 +208,7 @@ class FastGeneralLedgerWizard(models.TransientModel):
     def _ffr_refresh(self):
         self.ensure_one()
         t0 = time.perf_counter()
-        where_sql, company_ids, needs_join = self._ffr_where()
-        opening_where_sql = self._ffr_opening_where()
-        join_sql = SQL("JOIN account_move am ON am.id = aml.move_id") if needs_join else SQL("")
-
-        opening_sql = SQL(
-            "SELECT account_id, SUM(debit) - SUM(credit) AS opening_balance "
-            "FROM account_move_line aml WHERE %s GROUP BY account_id",
-            opening_where_sql,
-        )
-        period_sql = SQL(
-            "SELECT aml.account_id, SUM(aml.debit) AS period_debit, SUM(aml.credit) AS period_credit, "
-            "COUNT(*) AS entry_count "
-            "FROM account_move_line aml %s WHERE %s GROUP BY aml.account_id",
-            join_sql, where_sql,
-        )
-        # FULL OUTER JOIN: an account can have an opening balance with zero
-        # movement this period, or movement this period with no prior
-        # opening balance - both must appear.
-        grouped_sql = SQL(
-            "SELECT COALESCE(o.account_id, p.account_id) AS account_id, "
-            "COALESCE(o.opening_balance, 0) AS opening_balance, "
-            "COALESCE(p.period_debit, 0) AS period_debit, "
-            "COALESCE(p.period_credit, 0) AS period_credit, "
-            "COALESCE(p.entry_count, 0) AS entry_count "
-            "FROM (%s) o FULL OUTER JOIN (%s) p ON p.account_id = o.account_id",
-            opening_sql, period_sql,
-        )
-        having_sql = SQL("WHERE g.opening_balance != 0 OR g.period_debit != 0 OR g.period_credit != 0")
+        grouped_sql, having_sql, company_ids = self._ffr_grouped_sql()
 
         size = int(self.page_size)
         offset = (self.page - 1) * size
@@ -194,29 +216,29 @@ class FastGeneralLedgerWizard(models.TransientModel):
         total = self._ffr_execute_scalar(count_sql) or 0
 
         final_sql = SQL(
-            "SELECT g.account_id, aa.code AS account_code, %s AS account_name, "
-            "g.opening_balance, g.period_debit, g.period_credit, g.entry_count "
+            "SELECT g.account_id, aa.code AS account_code, %s AS account_name, %s "
             "FROM (%s) g JOIN account_account aa ON aa.id = g.account_id %s "
             "ORDER BY aa.code LIMIT %s OFFSET %s",
-            self._ffr_translated_sql("aa.name"), grouped_sql, having_sql, size, offset,
+            self._ffr_translated_sql("aa.name"), self._ffr_net_split_select(),
+            grouped_sql, having_sql, size, offset,
         )
         rows, sql_time_ms = self._ffr_execute(final_sql)
 
         self.line_ids.unlink()
         vals_list = []
         for seq, row in enumerate(rows):
-            closing_balance = row["opening_balance"] + row["period_debit"] - row["period_credit"]
             vals_list.append({
                 "wizard_id": self.id,
                 "sequence": seq,
                 "account_id": row["account_id"],
                 "account_code": row["account_code"],
                 "account_name": row["account_name"],
-                "opening_balance": row["opening_balance"],
+                "opening_debit": row["opening_debit"],
+                "opening_credit": row["opening_credit"],
                 "period_debit": row["period_debit"],
                 "period_credit": row["period_credit"],
-                "closing_balance": closing_balance,
-                "entry_count": row["entry_count"],
+                "ending_debit": row["ending_debit"],
+                "ending_credit": row["ending_credit"],
             })
         if vals_list:
             self.env["fast.general.ledger.line"].create(vals_list)
@@ -227,6 +249,14 @@ class FastGeneralLedgerWizard(models.TransientModel):
             "generated": True,
             "last_sql_time_ms": sql_time_ms,
             "last_total_time_ms": total_time_ms,
+            # Sums over this page's already-fetched vals_list (bounded by
+            # page_size) - not a new query.
+            "total_opening_debit": sum(v["opening_debit"] for v in vals_list),
+            "total_opening_credit": sum(v["opening_credit"] for v in vals_list),
+            "total_period_debit": sum(v["period_debit"] for v in vals_list),
+            "total_period_credit": sum(v["period_credit"] for v in vals_list),
+            "total_ending_debit": sum(v["ending_debit"] for v in vals_list),
+            "total_ending_credit": sum(v["ending_credit"] for v in vals_list),
         })
         self._ffr_log_debug(
             report_type="general_ledger_summary",
@@ -276,11 +306,12 @@ class FastGeneralLedgerLine(models.TransientModel):
     account_id = fields.Many2one("account.account", readonly=True)
     account_code = fields.Char(readonly=True)
     account_name = fields.Char(readonly=True)
-    opening_balance = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    opening_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    opening_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
     period_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
     period_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
-    closing_balance = fields.Monetary(readonly=True, currency_field="company_currency_id")
-    entry_count = fields.Integer(readonly=True)
+    ending_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    ending_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
     company_currency_id = fields.Many2one("res.currency", compute="_compute_company_currency_id")
 
     @api.depends("wizard_id")
@@ -297,7 +328,11 @@ class FastGeneralLedgerLine(models.TransientModel):
             "account_id": self.account_id.id,
             "account_code": self.account_code,
             "account_name": self.account_name,
-            "opening_balance": self.opening_balance,
+            # The opening balance is already net (this line's Opening
+            # Debit/Credit are its sign-split display, not two separate
+            # movements) - recombine them to seed the detail's running
+            # balance.
+            "opening_balance": self.opening_debit - self.opening_credit,
         })
         detail.action_load_first_page()
         return {
@@ -366,10 +401,9 @@ class FastGeneralLedgerDetailWizard(models.TransientModel):
         size = int(self.page_size)
         final_sql = SQL(
             "SELECT aml.id, aml.date, j.code AS journal_code, aml.move_name, "
-            "aml.ref, p.name AS partner_name, aml.name AS label, aml.debit, aml.credit "
+            "aml.ref, aml.name AS label, aml.debit, aml.credit "
             "FROM account_move_line aml "
             "JOIN account_journal j ON j.id = aml.journal_id "
-            "LEFT JOIN res_partner p ON p.id = aml.partner_id "
             "%s WHERE %s "
             "ORDER BY aml.date, aml.id "
             "LIMIT %s",
@@ -402,7 +436,6 @@ class FastGeneralLedgerDetailWizard(models.TransientModel):
                 "journal_code": row["journal_code"],
                 "move_name": row["move_name"],
                 "ref": row["ref"],
-                "partner_name": row["partner_name"],
                 "label": row["label"],
                 "debit": row["debit"],
                 "credit": row["credit"],
@@ -466,6 +499,10 @@ class FastGeneralLedgerDetailWizard(models.TransientModel):
         cursor_date = fields.Date.from_string(prev_date) if prev_date else None
         self._ffr_load_page(cursor_date, prev_id, prev_running)
 
+    def action_export_pdf(self):
+        self.ensure_one()
+        return self.env.ref("fast_financial_reports.action_report_general_ledger_detail").report_action(self)
+
 
 class FastGeneralLedgerDetailLine(models.TransientModel):
     _name = "fast.general.ledger.detail.line"
@@ -479,7 +516,6 @@ class FastGeneralLedgerDetailLine(models.TransientModel):
     journal_code = fields.Char(readonly=True)
     move_name = fields.Char(readonly=True, string="Move")
     ref = fields.Char(readonly=True, string="Reference")
-    partner_name = fields.Char(readonly=True, string="Partner")
     label = fields.Char(readonly=True)
     debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
     credit = fields.Monetary(readonly=True, currency_field="company_currency_id")

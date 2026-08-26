@@ -16,6 +16,7 @@
                     </group>
                     <group>
                         <field name="partner_ids" widget="many2many_tags" options="{'no_create': True}"/>
+                        <field name="partner_category_ids" widget="many2many_tags" options="{'no_create': True}"/>
                         <field name="account_ids" widget="many2many_tags" options="{'no_create': True}"/>
                         <field name="journal_ids" widget="many2many_tags" options="{'no_create': True}"/>
                         <field name="page_size"/>
@@ -47,11 +48,10 @@
                         <field name="partner_name"/>
                         <field name="opening_debit" sum="Total"/>
                         <field name="opening_credit" sum="Total"/>
-                        <field name="opening_balance" sum="Total"/>
                         <field name="period_debit" sum="Total"/>
                         <field name="period_credit" sum="Total"/>
-                        <field name="closing_balance" sum="Total"/>
-                        <field name="entry_count"/>
+                        <field name="closing_debit" sum="Total"/>
+                        <field name="closing_credit" sum="Total"/>
                         <button name="action_view_transactions" type="object"
                                 string="View Transactions" icon="fa-list"/>
                     </tree>
@@ -81,7 +81,6 @@
                     <tree create="false" delete="false" edit="false" limit="500">
                         <field name="date"/>
                         <field name="journal_code"/>
-                        <field name="move_name"/>
                         <field name="ref"/>
                         <field name="label"/>
                         <field name="debit" sum="Total"/>

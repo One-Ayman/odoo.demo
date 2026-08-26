@@ -27,7 +27,7 @@ POS accounting or ZATCA logic in any way.
     "version": "17.0.1.0.0",
     "category": "Accounting/Accounting",
     "license": "LGPL-3",
-    "author": "Fast Financial Reports",
+    "author": "Ayman Elhaddad",
     "depends": ["account"],
     "data": [
         "security/fast_financial_reports_security.xml",

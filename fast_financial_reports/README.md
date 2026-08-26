@@ -1,5 +1,10 @@
 # Fast Financial Reports (Phase 1)
 
+**Author**: Ayman Elhaddad
+**Module**: Fast Financial Reports
+**Odoo Version**: 17
+**Phase**: 1
+
 A high-performance, read-only reporting engine for Odoo 17 Accounting,
 built for databases where the standard Trial Balance / General Ledger /
 Partner Ledger reports become too slow to use (target environment: ~75M
@@ -338,6 +343,75 @@ test.
   direct `report._render_qweb_pdf()` call against real data: produced a
   valid 1-page, 1.05MB PDF.
 
+### Partner Ledger PDF (v2 redesign)
+
+The Partner Ledger PDF (`report/partner_ledger_report.xml`) was redesigned
+for a professional A4-Landscape layout with full RTL/Arabic support,
+without changing any accounting calculation or the SQL-pushdown engine:
+
+- **Six Debit/Credit columns** - Opening Balance, Period, and Closing
+  Balance each split into Debit/Credit - replacing the old single combined
+  balance columns. The Entries column is gone from the PDF (the
+  interactive tree view and XLSX export still show `entry_count`
+  unchanged, since only the PDF's presentation was in scope). All three
+  splits are simple Python sign-splits of values the SQL already computed
+  (`_ffr_refresh()` in `wizard/partner_ledger.py`) - no new query.
+- **Localization** follows the current user's language automatically via
+  `web.external_layout` and `res.lang._lang_get(env.lang).direction`, not
+  a hardcoded language check. `res_partner.name` is a plain (non-translated)
+  `Char` column in Odoo 17 - verified directly against
+  `odoo/addons/base/models/res_partner.py` before relying on it - so a
+  partner name is never a JSONB translation dict; the *static labels*
+  ("Partner", "Debit", "Credit", ...) are translated the normal Odoo way,
+  via `i18n/ar.po`.
+- **Long-name wrapping uses a Python pre-wrap, not CSS.** This
+  environment's wkhtmltopdf (`0.12.6`, unpatched Qt) was confirmed, via an
+  isolated minimal reproduction outside Odoo entirely, to silently fail to
+  line-wrap long right-to-left (Arabic) text inside a `table-layout:
+  fixed` cell - the overflow gets clipped/overlaps the next column instead
+  of wrapping, regardless of `word-wrap`/`overflow-wrap`/`word-break` CSS.
+  `FastReportSqlMixin._ffr_wrap_html_lines()` sidesteps this by computing
+  line breaks in Python (`textwrap.wrap`, script-agnostic, character-count
+  based) and emitting literal `<br/>` tags, individually HTML-escaping
+  each line. This works the same for English and Arabic and does not
+  depend on the browser's line-breaking algorithm at all.
+- **Company letterhead header and the "Page X / Y" footer do not render
+  in this sandbox.** Odoo's report engine produces these via
+  wkhtmltopdf's `--header-html`/`--footer-html`, and this environment's
+  wkhtmltopdf logs "not support[ed] using unpatched qt" for both and
+  silently omits them - confirmed the main report body still renders
+  correctly regardless. Odoo's officially recommended wkhtmltopdf build
+  ("with patched qt") supports this normally; this is a sandbox/build
+  limitation, not a template defect, and should be re-verified against
+  the actual target deployment's wkhtmltopdf build before go-live.
+
+### Partner Tag filter (Partner Ledger)
+
+`partner_category_ids` (`res.partner.category`, many2many, "any of these
+tags" / OR semantics) narrows the Partner Ledger - summary, transaction
+drill-down, and XLSX export alike, since all three call the same
+`_ffr_where()` - to partners carrying at least one selected tag.
+
+Pushed down as `EXISTS (SELECT 1 FROM res_partner_res_partner_category_rel
+rel WHERE rel.partner_id = aml.partner_id AND rel.category_id = ANY(%s))`
+(`FastPartnerLedgerWizard._ffr_partner_tag_sql()`) rather than a `JOIN`:
+a `JOIN` against the many-to-many relation table would return a partner's
+`account_move_line` rows once per matching tag, silently inflating every
+SUM/COUNT for a partner carrying more than one selected tag. `EXISTS` only
+tests for at least one match and never multiplies the outer row, so this
+is correct regardless of tag overlap - verified both by a dedicated unit
+test (`test_partner_tag_filter_multiple_tags_no_duplicate_amounts`) and,
+at 10M-row scale, by comparing `count(*)` vs. `count(DISTINCT partner_id)`
+for a two-tag, 500/300-overlapping-partner filter (see
+[Performance benchmark results](#performance-benchmark-results)).
+
+No new index was added: the relation table's `(partner_id, category_id)`
+index already exists (created automatically by the `res.partner.category_id`
+field itself), and PostgreSQL was confirmed, via `EXPLAIN ANALYZE` at
+10M rows, to use it. Untagged partners are handled by the normal absence
+of a matching row - no special-casing needed - and are simply excluded
+whenever a tag filter is active, included as always when it is not.
+
 ---
 
 ## Performance debug mode
@@ -391,7 +465,15 @@ odoo.tests.result: 0 failed, 0 error(s) of 43 tests when loading database 'ffr_d
 *(This is round 1's result, kept verbatim as a historical record. A round-2
 QA pass added `tests/test_accounting_correctness_vs_orm.py` - see
 [`QA_REPORT.md`](QA_REPORT.md) for the updated 48-tests-green run and the
-independent ORM cross-check it added.)*
+independent ORM cross-check it added. A round-3 pass added
+`tests/test_partner_ledger_pdf.py` (PDF structure/RTL/localization coverage
+for the Partner Ledger redesign) and the Partner Tag filter tests appended
+to `test_partner_ledger.py`:*
+
+```
+odoo.tests.stats: fast_financial_reports: 83 tests 23.44s 12925 queries
+odoo.tests.result: 0 failed, 0 error(s) of 69 tests when loading database 'ffr_qa'
+```
 
 Coverage includes: one day / one week / one month / one year / multi-year
 date ranges, an empty-future-period (opening balance carries forward
@@ -527,6 +609,28 @@ the (roughly linear, since no index fully covers a full-history scan)
 growth expected up to that scale; it is not a substitute for a real
 measurement at 75M rows.
 
+### Partner Tag filter, 10M-row scale
+
+Full `EXPLAIN (ANALYZE, BUFFERS)` output in
+[`docs/benchmarks/partner_tag_filter_10m.txt`](docs/benchmarks/partner_tag_filter_10m.txt).
+Same 10,000,068-row database, exact SQL shape `_ffr_where()`/`_ffr_refresh()`
+build for the Partner Ledger summary:
+
+| Filter | Plan | Execution time |
+|---|---|---|
+| No tag filter (baseline) | Parallel Seq Scan on `account_move_line` | 1775 ms |
+| Single tag, 500/2040 partners tagged | Merge Join via `account_move_line_partner_id_ref_idx` | 1020 ms |
+| Two tags (OR), 500/300 overlapping partners | Index Only Scan on the relation table's own `(partner_id, category_id)` index | 1958 ms |
+
+The tag filter did not add scan cost - PostgreSQL recognized the `EXISTS`
+as a semi-join against a small filtered set and picked a *cheaper* plan
+than the baseline. A duplicate-row check on the two-tag case (`count(*)`
+vs. `count(DISTINCT partner_id)` on the same filtered query, no `LIMIT`)
+returned 136,499 matching journal-line rows across exactly 500 distinct
+partners - the exact union of the two tags' partner sets, confirming no
+inflation from the many-to-many relation regardless of how many tags a
+partner carries or how many are selected.
+
 ### Multi-user / concurrency
 
 Not exercised in this environment: no facility here to run multiple
@@ -575,6 +679,18 @@ copy of the actual production database.
   XLSX export *does* export the full filtered/aggregated result (still
   bounded by account/partner cardinality, not by line count) via the
   chunked streaming path.
+- **This sandbox's wkhtmltopdf (`0.12.6`, unpatched Qt) does not render
+  PDF header/footer bands** (`--header-html`/`--footer-html` both log
+  "not support[ed]" and are silently skipped) - the Partner Ledger PDF's
+  company letterhead and "Page X / Y" footer will not appear here, even
+  though the report body renders correctly and the template uses Odoo's
+  normal, standard mechanism (`web.external_layout`). Re-verify against
+  the target deployment's actual wkhtmltopdf build (Odoo's officially
+  recommended "patched Qt" build supports this normally) before relying
+  on header/footer output. See
+  [Partner Ledger PDF (v2 redesign)](#partner-ledger-pdf-v2-redesign) for
+  the full detail, including the separate (already worked around) long
+  Arabic text line-wrapping bug found in the same wkhtmltopdf build.
 - **Reversed/cancelled entries, multi-currency, and partial reconciliation**
   were exercised only at the schema/filter level (`parent_state != 'cancel'`
   always excludes cancelled entries; multi-currency columns exist on

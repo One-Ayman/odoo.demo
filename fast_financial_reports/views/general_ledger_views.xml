@@ -47,11 +47,12 @@
                     <tree create="false" delete="false" edit="false" limit="500">
                         <field name="account_code"/>
                         <field name="account_name"/>
-                        <field name="opening_balance" sum="Total"/>
+                        <field name="opening_debit" sum="Total"/>
+                        <field name="opening_credit" sum="Total"/>
                         <field name="period_debit" sum="Total"/>
                         <field name="period_credit" sum="Total"/>
-                        <field name="closing_balance" sum="Total"/>
-                        <field name="entry_count"/>
+                        <field name="ending_debit" sum="Total"/>
+                        <field name="ending_credit" sum="Total"/>
                         <button name="action_view_transactions" type="object"
                                 string="View Transactions" icon="fa-list"/>
                     </tree>
@@ -66,6 +67,9 @@
         <field name="model">fast.general.ledger.detail.wizard</field>
         <field name="arch" type="xml">
             <form string="Journal Items">
+                <div class="d-flex gap-2 mb-2">
+                    <button name="action_export_pdf" type="object" string="Print" class="btn-secondary"/>
+                </div>
                 <group>
                     <field name="account_code"/>
                     <field name="account_name"/>
@@ -82,9 +86,7 @@
                     <tree create="false" delete="false" edit="false" limit="500">
                         <field name="date"/>
                         <field name="journal_code"/>
-                        <field name="move_name"/>
                         <field name="ref"/>
-                        <field name="partner_name"/>
                         <field name="label"/>
                         <field name="debit" sum="Total"/>
                         <field name="credit" sum="Total"/>

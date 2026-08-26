@@ -1,45 +1,281 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <record id="paperformat_general_ledger_landscape" model="report.paperformat">
+        <field name="name">Fast General Ledger (A4 Landscape)</field>
+        <field name="default" eval="False"/>
+        <field name="format">A4</field>
+        <field name="orientation">Landscape</field>
+        <field name="page_height">0</field>
+        <field name="page_width">0</field>
+        <field name="margin_top">15</field>
+        <field name="margin_bottom">20</field>
+        <field name="margin_left">8</field>
+        <field name="margin_right">8</field>
+        <field name="header_line" eval="False"/>
+        <field name="header_spacing">10</field>
+        <field name="dpi">90</field>
+    </record>
+
     <record id="action_report_general_ledger" model="ir.actions.report">
         <field name="name">General Ledger</field>
         <field name="model">fast.general.ledger.wizard</field>
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">fast_financial_reports.report_general_ledger_document</field>
         <field name="print_report_name">'General Ledger - %s' % (object.date_to)</field>
+        <field name="paperformat_id" ref="paperformat_general_ledger_landscape"/>
     </record>
 
     <template id="report_general_ledger_document">
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="doc">
-                <t t-call="web.internal_layout">
-                    <div class="page">
-                        <h2>General Ledger - Account Summary</h2>
-                        <p>
-                            Period: <span t-esc="doc.date_from"/> to <span t-esc="doc.date_to"/>
-                            (page <span t-esc="doc.page"/> / <span t-esc="doc.total_page_count"/>)
-                        </p>
-                        <table class="table table-sm table-bordered">
+                <!-- Same structure/CSS/RTL technique as Trial Balance - the Account Summary
+                     page is deliberately identical in shape (Code | Name | Opening Debit/Credit
+                     | Period Debit/Credit | Ending Debit/Credit), no "Entries" column. See
+                     report/trial_balance_report.xml for the full CSS/meta-line notes. -->
+                <t t-set="ffr_lang" t-value="doc.env['res.lang']._lang_get(doc.env.lang)"/>
+                <t t-set="ffr_dir" t-value="(ffr_lang.direction if ffr_lang else False) or 'ltr'"/>
+                <t t-set="ffr_rtl" t-value="ffr_dir == 'rtl'"/>
+                <t t-set="ffr_align" t-value="'right' if ffr_rtl else 'left'"/>
+                <t t-set="ffr_border_side" t-value="'right' if ffr_rtl else 'left'"/>
+                <t t-call="web.external_layout">
+                    <div class="page ffr-gl-page" t-att-dir="ffr_dir">
+                        <style>
+                            .ffr-gl-page { font-family: "Noto Naskh Arabic", "Noto Sans Arabic", "Lato", Arial, sans-serif; }
+                            .ffr-gl-meta { font-size: 9px; color: #444; margin-top: 2px; border-collapse: collapse; table-layout: fixed; }
+                            .ffr-gl-meta td { border: none; padding: 0; white-space: nowrap; }
+                            .ffr-gl-meta td.ffr-label { color: #777; }
+                            .ffr-gl-table { table-layout: fixed; width: 100%; border-collapse: collapse; margin-top: 8px; }
+                            .ffr-gl-table col.ffr-col-code { width: 9%; }
+                            .ffr-gl-table col.ffr-col-name { width: auto; }
+                            .ffr-gl-table col.ffr-col-num { width: 11.5%; }
+                            .ffr-gl-table th, .ffr-gl-table td { border: 0.5pt solid #b9c2d0; padding: 4px 6px; vertical-align: top; }
+                            .ffr-gl-table thead th { background: #2c3e6b; color: #fff; font-size: 8.5pt; text-align: center; }
+                            .ffr-gl-table thead tr.ffr-sub th { background: #3f5490; font-size: 8pt; font-weight: 500; }
+                            .ffr-gl-table tbody td.ffr-name { word-wrap: break-word; overflow-wrap: break-word; }
+                            .ffr-gl-table tbody td.ffr-num { text-align: center; direction: ltr; white-space: nowrap; }
+                            .ffr-gl-table tbody tr:nth-child(even) { background: #f4f6fb; }
+                            .ffr-gl-table tfoot td.ffr-num { font-weight: 700; text-align: center; direction: ltr; background: #e7ebf5; }
+                        </style>
+
+                        <h2><span>General Ledger</span> &#8211; <span>Account Summary</span></h2>
+
+                        <table class="ffr-gl-meta" dir="ltr" style="margin-left:auto;">
+                            <tr t-if="ffr_rtl">
+                                <td t-attf-style="text-align: right; padding-left: 16px; width: 220px;">
+                                    <span t-if="doc.posted_only">Posted Entries Only</span>
+                                    <span t-else="">All Entries (Posted and Draft)</span>
+                                </td>
+                                <td t-attf-style="text-align: right; padding-left: 4px; width: 260px;">
+                                    <span t-esc="', '.join(doc.company_ids.mapped('name'))"/>
+                                </td>
+                                <td class="ffr-label" t-attf-style="text-align: right; padding-left: 16px; width: 90px;">
+                                    <span>Companies:</span>
+                                </td>
+                                <td dir="ltr" t-attf-style="text-align: right; padding-left: 4px; direction: ltr; width: 170px;">
+                                    <span t-field="doc.date_from"/> &#8211; <span t-field="doc.date_to"/>
+                                </td>
+                                <td class="ffr-label" t-attf-style="text-align: right; width: 70px;">
+                                    <span>Period:</span>
+                                </td>
+                            </tr>
+                            <tr t-else="">
+                                <td class="ffr-label" t-attf-style="text-align: left; padding-right: 4px; width: 50px;">
+                                    <span>Period:</span>
+                                </td>
+                                <td dir="ltr" t-attf-style="text-align: left; padding-right: 16px; width: 170px;">
+                                    <span t-field="doc.date_from"/> &#8211; <span t-field="doc.date_to"/>
+                                </td>
+                                <td class="ffr-label" t-attf-style="text-align: left; padding-right: 4px; width: 90px;">
+                                    <span>Companies:</span>
+                                </td>
+                                <td t-attf-style="text-align: left; padding-right: 16px; width: 260px;">
+                                    <span t-esc="', '.join(doc.company_ids.mapped('name'))"/>
+                                </td>
+                                <td t-attf-style="text-align: left; width: 220px;">
+                                    <span t-if="doc.posted_only">Posted Entries Only</span>
+                                    <span t-else="">All Entries (Posted and Draft)</span>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <table class="ffr-gl-table" t-attf-style="direction: #{ffr_dir};">
+                            <colgroup>
+                                <col class="ffr-col-code"/><col class="ffr-col-name"/>
+                                <col class="ffr-col-num"/><col class="ffr-col-num"/>
+                                <col class="ffr-col-num"/><col class="ffr-col-num"/>
+                                <col class="ffr-col-num"/><col class="ffr-col-num"/>
+                            </colgroup>
                             <thead>
                                 <tr>
-                                    <th>Code</th>
-                                    <th>Account</th>
-                                    <th class="text-end">Opening Balance</th>
-                                    <th class="text-end">Debit</th>
-                                    <th class="text-end">Credit</th>
-                                    <th class="text-end">Closing Balance</th>
-                                    <th class="text-end">Entries</th>
+                                    <th rowspan="2" t-attf-style="text-align: #{ffr_align};"><span>Account Code</span></th>
+                                    <th rowspan="2" t-attf-style="text-align: #{ffr_align};"><span>Account Name</span></th>
+                                    <th colspan="2" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Opening Balance</span></th>
+                                    <th colspan="2" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Period</span></th>
+                                    <th colspan="2" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Ending Balance</span></th>
+                                </tr>
+                                <tr class="ffr-sub">
+                                    <th t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Debit</span></th><th><span>Credit</span></th>
+                                    <th t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Debit</span></th><th><span>Credit</span></th>
+                                    <th t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span>Debit</span></th><th><span>Credit</span></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr t-foreach="doc.line_ids" t-as="line">
-                                    <td><span t-esc="line.account_code"/></td>
-                                    <td><span t-esc="line.account_name"/></td>
-                                    <td class="text-end"><span t-esc="'%.2f' % line.opening_balance"/></td>
-                                    <td class="text-end"><span t-esc="'%.2f' % line.period_debit"/></td>
-                                    <td class="text-end"><span t-esc="'%.2f' % line.period_credit"/></td>
-                                    <td class="text-end"><span t-esc="'%.2f' % line.closing_balance"/></td>
-                                    <td class="text-end"><span t-esc="line.entry_count"/></td>
+                                    <td class="ffr-name" t-attf-style="text-align: #{ffr_align};"><span t-esc="line.account_code"/></td>
+                                    <td class="ffr-name" t-attf-style="text-align: #{ffr_align};" t-out="doc._ffr_wrap_html_lines(line.account_name)"/>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="line.opening_debit"/></td>
+                                    <td class="ffr-num"><span t-field="line.opening_credit"/></td>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="line.period_debit"/></td>
+                                    <td class="ffr-num"><span t-field="line.period_credit"/></td>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="line.ending_debit"/></td>
+                                    <td class="ffr-num"><span t-field="line.ending_credit"/></td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="2" t-attf-style="font-weight: 700; text-align: #{ffr_align};"><span>Total</span></td>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="doc.total_opening_debit"/></td>
+                                    <td class="ffr-num"><span t-field="doc.total_opening_credit"/></td>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="doc.total_period_debit"/></td>
+                                    <td class="ffr-num"><span t-field="doc.total_period_credit"/></td>
+                                    <td class="ffr-num" t-attf-style="border-#{ffr_border_side}: 1.5pt solid #2c3e6b;"><span t-field="doc.total_ending_debit"/></td>
+                                    <td class="ffr-num"><span t-field="doc.total_ending_credit"/></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+
+    <!-- ================================================================
+         Transaction Detail - printable per-account drill-down. Bound to
+         the DETAIL wizard (one account, already-loaded page of
+         transactions), not the summary wizard: detail is only ever
+         fetched for one account at a time (see
+         FastGeneralLedgerDetailWizard), so it only ever prints one
+         account at a time too. Account is shown as a page caption, not a
+         repeated column - exactly the approved two-tier drill-down
+         structure. ================================================== -->
+
+    <record id="action_report_general_ledger_detail" model="ir.actions.report">
+        <field name="name">General Ledger - Transaction Detail</field>
+        <field name="model">fast.general.ledger.detail.wizard</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">fast_financial_reports.report_general_ledger_detail_document</field>
+        <field name="print_report_name">'General Ledger Detail - %s' % (object.account_code)</field>
+        <field name="paperformat_id" ref="paperformat_general_ledger_landscape"/>
+    </record>
+
+    <template id="report_general_ledger_detail_document">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="doc">
+                <t t-set="ffr_lang" t-value="doc.env['res.lang']._lang_get(doc.env.lang)"/>
+                <t t-set="ffr_dir" t-value="(ffr_lang.direction if ffr_lang else False) or 'ltr'"/>
+                <t t-set="ffr_rtl" t-value="ffr_dir == 'rtl'"/>
+                <t t-set="ffr_align" t-value="'right' if ffr_rtl else 'left'"/>
+                <t t-set="ffr_border_side" t-value="'right' if ffr_rtl else 'left'"/>
+                <t t-call="web.external_layout">
+                    <div class="page ffr-gld-page" t-att-dir="ffr_dir">
+                        <style>
+                            .ffr-gld-page { font-family: "Noto Naskh Arabic", "Noto Sans Arabic", "Lato", Arial, sans-serif; }
+                            .ffr-gld-meta { font-size: 9px; color: #444; margin-top: 2px; border-collapse: collapse; table-layout: fixed; }
+                            .ffr-gld-meta td { border: none; padding: 0; white-space: nowrap; }
+                            .ffr-gld-meta td.ffr-label { color: #777; }
+                            .ffr-gld-caption { font-size: 13px; font-weight: 700; color: #2c3e6b; margin: 10px 0 4px 0; }
+                            .ffr-gld-table { table-layout: fixed; width: 100%; border-collapse: collapse; margin-top: 4px; }
+                            .ffr-gld-table col.ffr-col-date { width: 9%; }
+                            .ffr-gld-table col.ffr-col-journal { width: 8%; }
+                            .ffr-gld-table col.ffr-col-ref { width: 13%; }
+                            .ffr-gld-table col.ffr-col-desc { width: auto; }
+                            .ffr-gld-table col.ffr-col-num { width: 11%; }
+                            .ffr-gld-table th, .ffr-gld-table td { border: 0.5pt solid #b9c2d0; padding: 4px 6px; vertical-align: top; }
+                            .ffr-gld-table thead th { background: #2c3e6b; color: #fff; font-size: 8.5pt; text-align: center; }
+                            .ffr-gld-table tbody td.ffr-name { word-wrap: break-word; overflow-wrap: break-word; }
+                            .ffr-gld-table tbody td.ffr-num { text-align: center; direction: ltr; white-space: nowrap; }
+                            .ffr-gld-table tbody tr:nth-child(even) { background: #f4f6fb; }
+                            .ffr-gld-table tbody tr.ffr-opening td { font-style: italic; }
+                        </style>
+
+                        <h2><span>General Ledger</span> &#8211; <span>Transaction Detail</span></h2>
+
+                        <table class="ffr-gld-meta" dir="ltr" style="margin-left:auto;">
+                            <tr t-if="ffr_rtl">
+                                <td t-attf-style="text-align: right; padding-left: 16px; width: 220px;">
+                                    <span t-if="doc.parent_wizard_id.posted_only">Posted Entries Only</span>
+                                    <span t-else="">All Entries (Posted and Draft)</span>
+                                </td>
+                                <td t-attf-style="text-align: right; padding-left: 4px; width: 260px;">
+                                    <span t-esc="', '.join(doc.parent_wizard_id.company_ids.mapped('name'))"/>
+                                </td>
+                                <td class="ffr-label" t-attf-style="text-align: right; padding-left: 16px; width: 90px;">
+                                    <span>Companies:</span>
+                                </td>
+                                <td dir="ltr" t-attf-style="text-align: right; padding-left: 4px; direction: ltr; width: 170px;">
+                                    <span t-field="doc.parent_wizard_id.date_from"/> &#8211; <span t-field="doc.parent_wizard_id.date_to"/>
+                                </td>
+                                <td class="ffr-label" t-attf-style="text-align: right; width: 70px;">
+                                    <span>Period:</span>
+                                </td>
+                            </tr>
+                            <tr t-else="">
+                                <td class="ffr-label" t-attf-style="text-align: left; padding-right: 4px; width: 50px;">
+                                    <span>Period:</span>
+                                </td>
+                                <td dir="ltr" t-attf-style="text-align: left; padding-right: 16px; width: 170px;">
+                                    <span t-field="doc.parent_wizard_id.date_from"/> &#8211; <span t-field="doc.parent_wizard_id.date_to"/>
+                                </td>
+                                <td class="ffr-label" t-attf-style="text-align: left; padding-right: 4px; width: 90px;">
+                                    <span>Companies:</span>
+                                </td>
+                                <td t-attf-style="text-align: left; padding-right: 16px; width: 260px;">
+                                    <span t-esc="', '.join(doc.parent_wizard_id.company_ids.mapped('name'))"/>
+                                </td>
+                                <td t-attf-style="text-align: left; width: 220px;">
+                                    <span t-if="doc.parent_wizard_id.posted_only">Posted Entries Only</span>
+                                    <span t-else="">All Entries (Posted and Draft)</span>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <div class="ffr-gld-caption" t-attf-style="text-align: #{ffr_align};">
+                            <span>Account:</span>
+                            <span t-esc="doc.account_code"/> &#8211;
+                            <t t-out="doc._ffr_wrap_html_lines(doc.account_name)"/>
+                        </div>
+
+                        <table class="ffr-gld-table" t-attf-style="direction: #{ffr_dir};">
+                            <colgroup>
+                                <col class="ffr-col-date"/><col class="ffr-col-journal"/>
+                                <col class="ffr-col-ref"/><col class="ffr-col-desc"/>
+                                <col class="ffr-col-num"/><col class="ffr-col-num"/><col class="ffr-col-num"/>
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th t-attf-style="text-align: #{ffr_align};"><span>Date</span></th>
+                                    <th t-attf-style="text-align: #{ffr_align};"><span>Journal</span></th>
+                                    <th t-attf-style="text-align: #{ffr_align};"><span>Reference</span></th>
+                                    <th t-attf-style="text-align: #{ffr_align};"><span>Description</span></th>
+                                    <th><span>Debit</span></th>
+                                    <th><span>Credit</span></th>
+                                    <th><span>Balance</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="ffr-opening">
+                                    <td colspan="6" t-attf-style="text-align: #{ffr_align};"><span>Opening Balance</span></td>
+                                    <td class="ffr-num"><span t-field="doc.opening_balance"/></td>
+                                </tr>
+                                <tr t-foreach="doc.detail_line_ids" t-as="line">
+                                    <td class="ffr-name"><span t-field="line.date"/></td>
+                                    <td class="ffr-name"><span t-esc="line.journal_code"/></td>
+                                    <td class="ffr-name" t-attf-style="text-align: #{ffr_align};" t-out="doc._ffr_wrap_html_lines(line.ref or '')"/>
+                                    <td class="ffr-name" t-attf-style="text-align: #{ffr_align};" t-out="doc._ffr_wrap_html_lines(line.label or '')"/>
+                                    <td class="ffr-num"><span t-field="line.debit"/></td>
+                                    <td class="ffr-num"><span t-field="line.credit"/></td>
+                                    <td class="ffr-num"><span t-field="line.running_balance"/></td>
                                 </tr>
                             </tbody>
                         </table>

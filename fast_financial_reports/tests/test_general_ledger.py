@@ -12,6 +12,8 @@ class TestFastGeneralLedger(FastFinancialReportsCommon):
         cls._post_entry(cls, "2023-12-20", [
             (cls.account_bank, 300, 0, None), (cls.account_income, 0, 300, None),
         ])
+        # Bank has BOTH a debit (100) and a credit (50) movement within the
+        # same January period, deliberately, to exercise net-only display.
         cls._post_entry(cls, "2024-01-05", [
             (cls.account_bank, 100, 0, None), (cls.account_income, 0, 100, None),
         ])
@@ -28,13 +30,16 @@ class TestFastGeneralLedger(FastFinancialReportsCommon):
         wizard.action_generate()
         return wizard
 
+    def _line_for(self, wizard, account):
+        return wizard.line_ids.filtered(lambda l: l.account_id == account)
+
     def test_summary_totals_reconcile(self):
         wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31")
         for line in wizard.line_ids:
-            self.assertAlmostEqual(
-                line.opening_balance + line.period_debit - line.period_credit,
-                line.closing_balance, places=2,
-            )
+            opening_net = line.opening_debit - line.opening_credit
+            period_net = line.period_debit - line.period_credit
+            ending_net = line.ending_debit - line.ending_credit
+            self.assertAlmostEqual(opening_net + period_net, ending_net, places=2)
 
     def test_summary_does_not_load_detail(self):
         """The step-1 summary query must never touch transaction detail: no
@@ -51,11 +56,12 @@ class TestFastGeneralLedger(FastFinancialReportsCommon):
         action = bank_line.action_view_transactions()
         detail = self.env["fast.general.ledger.detail.wizard"].browse(action["res_id"])
         self.assertEqual(len(detail.detail_line_ids), 2)
-        running = bank_line.opening_balance
+        running = bank_line.opening_debit - bank_line.opening_credit
         for line in detail.detail_line_ids:
             running += line.debit - line.credit
             self.assertAlmostEqual(line.running_balance, running, places=2)
-        self.assertAlmostEqual(running, bank_line.closing_balance, places=2)
+        ending_net = bank_line.ending_debit - bank_line.ending_credit
+        self.assertAlmostEqual(running, ending_net, places=2)
 
     def test_keyset_pagination_next_prev(self):
         # A dedicated account with enough postings to span two 20-row pages.
@@ -108,3 +114,63 @@ class TestFastGeneralLedger(FastFinancialReportsCommon):
         self.assertEqual(wizard.total_account_count, 0)
         self.assertFalse(wizard.line_ids)
         self.assertFalse(wizard.line_ids)
+
+    # -- net-balance display rule (Opening/Period/Ending never both sides) --
+    def test_net_balance_never_shows_both_debit_and_credit_together(self):
+        """User-mandated rule: every Opening/Period/Ending balance must
+        show the NET balance only. The bank account has both a debit
+        (100) and a credit (50) movement within the same period; the
+        report must show Debit=50 / Credit=0, never Debit=100 AND
+        Credit=50 together."""
+        wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31")
+        bank_line = self._line_for(wizard, self.account_bank)
+        self.assertAlmostEqual(bank_line.period_debit, 50.0, places=2)
+        self.assertAlmostEqual(bank_line.period_credit, 0.0, places=2)
+        for line in wizard.line_ids:
+            self.assertTrue(
+                line.opening_debit == 0.0 or line.opening_credit == 0.0,
+                "opening_debit and opening_credit must never both be non-zero (account %s)" % line.account_code,
+            )
+            self.assertTrue(
+                line.period_debit == 0.0 or line.period_credit == 0.0,
+                "period_debit and period_credit must never both be non-zero (account %s)" % line.account_code,
+            )
+            self.assertTrue(
+                line.ending_debit == 0.0 or line.ending_credit == 0.0,
+                "ending_debit and ending_credit must never both be non-zero (account %s)" % line.account_code,
+            )
+
+    def test_net_balance_debit_heavy_bucket_shows_debit_only(self):
+        """Explicit worked example matching the requirement: gross debit
+        10,000 / credit 7,000 in the same period must display as
+        Debit=3,000 / Credit=0, never both gross amounts."""
+        net_account = self.env["account.account"].create({
+            "code": "TSTGLNET1", "name": "FFR GL Net Split Debit Heavy", "account_type": "asset_cash",
+        })
+        self._post_entry("2024-05-01", [
+            (net_account, 10000, 0, None), (self.account_income, 0, 10000, None),
+        ])
+        self._post_entry("2024-05-02", [
+            (net_account, 0, 7000, None), (self.account_expense, 7000, 0, None),
+        ])
+        wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31")
+        line = self._line_for(wizard, net_account)
+        self.assertAlmostEqual(line.period_debit, 3000.0, places=2)
+        self.assertAlmostEqual(line.period_credit, 0.0, places=2)
+
+    def test_net_balance_credit_heavy_bucket_shows_credit_only(self):
+        """Same rule, opposite sign: gross debit 7,000 / credit 10,000
+        must display as Debit=0 / Credit=3,000."""
+        net_account = self.env["account.account"].create({
+            "code": "TSTGLNET2", "name": "FFR GL Net Split Credit Heavy", "account_type": "asset_cash",
+        })
+        self._post_entry("2024-07-01", [
+            (net_account, 7000, 0, None), (self.account_income, 0, 7000, None),
+        ])
+        self._post_entry("2024-07-02", [
+            (net_account, 0, 10000, None), (self.account_expense, 10000, 0, None),
+        ])
+        wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31")
+        line = self._line_for(wizard, net_account)
+        self.assertAlmostEqual(line.period_debit, 0.0, places=2)
+        self.assertAlmostEqual(line.period_credit, 3000.0, places=2)

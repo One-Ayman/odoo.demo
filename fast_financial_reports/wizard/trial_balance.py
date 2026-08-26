@@ -20,7 +20,11 @@ class FastTrialBalanceWizard(models.TransientModel):
        debit/credit with conditional SUM(), in one pass - not two queries.
     3. The final SELECT joins the small, aggregated result (at most: number
        of accounts in the chart of accounts) to account_account for the
-       code/name, and paginates with ORDER BY code LIMIT/OFFSET.
+       code/name, collapses each of the opening/period/ending buckets to a
+       single NET balance sign-split back into Debit/Credit (see
+       ``FastReportSqlMixin._ffr_net_split_sql`` - a bucket with both debit
+       and credit movement must never show both sides at once, only its
+       net), and paginates with ORDER BY code LIMIT/OFFSET.
 
     Only the aggregated rows (one per account) ever reach Python.
     """
@@ -49,6 +53,26 @@ class FastTrialBalanceWizard(models.TransientModel):
 
     last_sql_time_ms = fields.Float(readonly=True, string="SQL Time (ms)")
     last_total_time_ms = fields.Float(readonly=True, string="Total Time (ms)")
+
+    # Page totals for the PDF's Total row - computed once in Python from
+    # the already-fetched (bounded, single-page) ``line_ids`` in
+    # ``_ffr_refresh`` (no extra SQL query) and stored as real Monetary
+    # fields so the QWeb report can render them with ``t-field`` and get
+    # the same locale-correct number formatting as every other amount on
+    # the page, instead of a hardcoded '%.2f' (matches the Partner Ledger
+    # wizard's existing pattern).
+    company_currency_id = fields.Many2one("res.currency", compute="_compute_company_currency_id")
+    total_opening_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_opening_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_period_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_period_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_ending_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    total_ending_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+
+    @api.depends("company_ids")
+    def _compute_company_currency_id(self):
+        for wiz in self:
+            wiz.company_currency_id = self.env.company.currency_id
 
     @api.depends("total_account_count", "page_size")
     def _compute_total_page_count(self):
@@ -82,11 +106,10 @@ class FastTrialBalanceWizard(models.TransientModel):
         )
         return SQL(
             "SELECT account_id, "
-            "SUM(CASE WHEN date < %s THEN debit ELSE 0 END) AS opening_debit, "
-            "SUM(CASE WHEN date < %s THEN credit ELSE 0 END) AS opening_credit, "
-            "SUM(CASE WHEN date >= %s THEN debit ELSE 0 END) AS period_debit, "
-            "SUM(CASE WHEN date >= %s THEN credit ELSE 0 END) AS period_credit, "
-            "COUNT(*) AS entry_count "
+            "SUM(CASE WHEN date < %s THEN debit ELSE 0 END) AS opening_debit_gross, "
+            "SUM(CASE WHEN date < %s THEN credit ELSE 0 END) AS opening_credit_gross, "
+            "SUM(CASE WHEN date >= %s THEN debit ELSE 0 END) AS period_debit_gross, "
+            "SUM(CASE WHEN date >= %s THEN credit ELSE 0 END) AS period_credit_gross "
             "FROM (%s) filtered "
             "GROUP BY account_id",
             self.date_from, self.date_from, self.date_from, self.date_from,
@@ -97,8 +120,26 @@ class FastTrialBalanceWizard(models.TransientModel):
         if self.show_zero:
             return SQL("")
         return SQL(
-            "WHERE g.opening_debit != 0 OR g.opening_credit != 0 "
-            "OR g.period_debit != 0 OR g.period_credit != 0"
+            "WHERE g.opening_debit_gross != 0 OR g.opening_credit_gross != 0 "
+            "OR g.period_debit_gross != 0 OR g.period_credit_gross != 0"
+        )
+
+    def _ffr_net_split_select(self):
+        """The six net-split Debit/Credit SQL fragments (Opening, Period,
+        Ending), reused identically by both the interactive query and the
+        XLSX export so the two never drift apart."""
+        opening_net = SQL("g.opening_debit_gross - g.opening_credit_gross")
+        period_net = SQL("g.period_debit_gross - g.period_credit_gross")
+        ending_net = SQL("(%s) + (%s)", opening_net, period_net)
+        opening_debit, opening_credit = self._ffr_net_split_sql(opening_net)
+        period_debit, period_credit = self._ffr_net_split_sql(period_net)
+        ending_debit, ending_credit = self._ffr_net_split_sql(ending_net)
+        return SQL(
+            "%s AS opening_debit, %s AS opening_credit, "
+            "%s AS period_debit, %s AS period_credit, "
+            "%s AS ending_debit, %s AS ending_credit",
+            opening_debit, opening_credit, period_debit, period_credit,
+            ending_debit, ending_credit,
         )
 
     def _ffr_export_sql(self):
@@ -109,13 +150,11 @@ class FastTrialBalanceWizard(models.TransientModel):
         grouped_sql = self._ffr_grouped_sql(where_sql)
         having_sql = self._ffr_having_sql()
         return SQL(
-            "SELECT aa.code AS account_code, %s AS account_name, "
-            "g.opening_debit, g.opening_credit, (g.opening_debit - g.opening_credit) AS opening_balance, "
-            "g.period_debit, g.period_credit, (g.period_debit - g.period_credit) AS period_balance, "
-            "(g.opening_debit - g.opening_credit + g.period_debit - g.period_credit) AS ending_balance "
+            "SELECT aa.code AS account_code, %s AS account_name, %s "
             "FROM (%s) g JOIN account_account aa ON aa.id = g.account_id %s "
             "ORDER BY aa.code",
-            self._ffr_translated_sql("aa.name"), grouped_sql, having_sql,
+            self._ffr_translated_sql("aa.name"), self._ffr_net_split_select(),
+            grouped_sql, having_sql,
         ), company_ids
 
     # ------------------------------------------------------------------
@@ -151,19 +190,17 @@ class FastTrialBalanceWizard(models.TransientModel):
         total = self._ffr_execute_scalar(count_sql) or 0
 
         final_sql = SQL(
-            "SELECT g.account_id, aa.code AS account_code, %s AS account_name, "
-            "g.opening_debit, g.opening_credit, g.period_debit, g.period_credit, g.entry_count "
+            "SELECT g.account_id, aa.code AS account_code, %s AS account_name, %s "
             "FROM (%s) g JOIN account_account aa ON aa.id = g.account_id %s "
             "ORDER BY aa.code LIMIT %s OFFSET %s",
-            self._ffr_translated_sql("aa.name"), grouped_sql, having_sql, size, offset,
+            self._ffr_translated_sql("aa.name"), self._ffr_net_split_select(),
+            grouped_sql, having_sql, size, offset,
         )
         rows, sql_time_ms = self._ffr_execute(final_sql)
 
         self.line_ids.unlink()
         vals_list = []
         for seq, row in enumerate(rows):
-            opening_balance = row["opening_debit"] - row["opening_credit"]
-            period_balance = row["period_debit"] - row["period_credit"]
             vals_list.append({
                 "wizard_id": self.id,
                 "sequence": seq,
@@ -172,12 +209,10 @@ class FastTrialBalanceWizard(models.TransientModel):
                 "account_name": row["account_name"],
                 "opening_debit": row["opening_debit"],
                 "opening_credit": row["opening_credit"],
-                "opening_balance": opening_balance,
                 "period_debit": row["period_debit"],
                 "period_credit": row["period_credit"],
-                "period_balance": period_balance,
-                "ending_balance": opening_balance + period_balance,
-                "entry_count": row["entry_count"],
+                "ending_debit": row["ending_debit"],
+                "ending_credit": row["ending_credit"],
             })
         if vals_list:
             self.env["fast.trial.balance.line"].create(vals_list)
@@ -188,6 +223,14 @@ class FastTrialBalanceWizard(models.TransientModel):
             "generated": True,
             "last_sql_time_ms": sql_time_ms,
             "last_total_time_ms": total_time_ms,
+            # Sums over this page's already-fetched vals_list (bounded by
+            # page_size) - not a new query.
+            "total_opening_debit": sum(v["opening_debit"] for v in vals_list),
+            "total_opening_credit": sum(v["opening_credit"] for v in vals_list),
+            "total_period_debit": sum(v["period_debit"] for v in vals_list),
+            "total_period_credit": sum(v["period_credit"] for v in vals_list),
+            "total_ending_debit": sum(v["ending_debit"] for v in vals_list),
+            "total_ending_credit": sum(v["ending_credit"] for v in vals_list),
         })
         self._ffr_log_debug(
             report_type="trial_balance",
@@ -238,12 +281,10 @@ class FastTrialBalanceLine(models.TransientModel):
     account_name = fields.Char(readonly=True)
     opening_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
     opening_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
-    opening_balance = fields.Monetary(readonly=True, currency_field="company_currency_id")
     period_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
     period_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
-    period_balance = fields.Monetary(readonly=True, currency_field="company_currency_id")
-    ending_balance = fields.Monetary(readonly=True, currency_field="company_currency_id")
-    entry_count = fields.Integer(readonly=True)
+    ending_debit = fields.Monetary(readonly=True, currency_field="company_currency_id")
+    ending_credit = fields.Monetary(readonly=True, currency_field="company_currency_id")
     company_currency_id = fields.Many2one(
         "res.currency", compute="_compute_company_currency_id",
     )

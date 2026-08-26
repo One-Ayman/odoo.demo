@@ -1,0 +1,177 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* fast_financial_reports
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-25 10:11+0000\n"
+"PO-Revision-Date: 2026-08-25 10:11+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: \n"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "<span>Account Code</span>"
+msgstr "<span>رمز الحساب</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "<span>Account Name</span>"
+msgstr "<span>اسم الحساب</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+msgid "<span>Account:</span>"
+msgstr "<span>الحساب:</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+msgid "<span>Balance</span>"
+msgstr "<span>الرصيد</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+msgid "<span>Closing Balance</span>"
+msgstr "<span>رصيد آخر المدة</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "<span>Companies:</span>"
+msgstr "<span>الشركات:</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "<span>Credit</span>"
+msgstr "<span>دائن</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+msgid "<span>Date</span>"
+msgstr "<span>التاريخ</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "<span>Debit</span>"
+msgstr "<span>مدين</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+msgid "<span>Description</span>"
+msgstr "<span>البيان</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "<span>Ending Balance</span>"
+msgstr "<span>رصيد آخر المدة</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+msgid "<span>General Ledger</span> – <span>Account Summary</span>"
+msgstr "<span>دفتر الأستاذ العام</span> – <span>ملخص الحسابات</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+msgid "<span>General Ledger</span> – <span>Transaction Detail</span>"
+msgstr "<span>دفتر الأستاذ العام</span> – <span>تفاصيل الحركات</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+msgid "<span>Journal</span>"
+msgstr "<span>اليومية</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "<span>Opening Balance</span>"
+msgstr "<span>رصيد أول المدة</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+msgid "<span>Partner Ledger</span>"
+msgstr "<span>كشف حساب الشريك</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+msgid "<span>Partner</span>"
+msgstr "<span>العميل / المورد</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "<span>Period:</span>"
+msgstr "<span>الفترة:</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "<span>Period</span>"
+msgstr "<span>حركة الفترة</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+msgid "<span>Reference</span>"
+msgstr "<span>المرجع</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+msgid "<span>Tags:</span>"
+msgstr "<span>الوسوم:</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "<span>Total</span>"
+msgstr "<span>الإجمالي</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "<span>Trial Balance</span>"
+msgstr "<span>ميزان المراجعة</span>"
+
+#. module: fast_financial_reports
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "All Entries (Posted and Draft)"
+msgstr "جميع القيود (المرحّلة والمسودة)"
+
+#. module: fast_financial_reports
+#: model:ir.model.fields,field_description:fast_financial_reports.field_fast_partner_ledger_wizard__partner_category_ids
+msgid "Partner Tags"
+msgstr "وسوم الشريك"
+
+#. module: fast_financial_reports
+#: model:ir.model.fields,field_description:fast_financial_reports.field_fast_general_ledger_wizard__posted_only
+#: model:ir.model.fields,field_description:fast_financial_reports.field_fast_partner_ledger_wizard__posted_only
+#: model:ir.model.fields,field_description:fast_financial_reports.field_fast_trial_balance_wizard__posted_only
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_detail_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_general_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_partner_ledger_document
+#: model_terms:ir.ui.view,arch_db:fast_financial_reports.report_trial_balance_document
+msgid "Posted Entries Only"
+msgstr "القيود المرحّلة فقط"

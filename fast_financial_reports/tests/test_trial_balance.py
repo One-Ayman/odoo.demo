@@ -14,7 +14,9 @@ class TestFastTrialBalance(FastFinancialReportsCommon):
         cls._post_entry(cls, "2023-12-20", [
             (cls.account_bank, 300, 0, None), (cls.account_income, 0, 300, None),
         ])
-        # Current year, several dates spanning day/week/month.
+        # Current year, several dates spanning day/week/month. Bank has
+        # BOTH a debit (100) and a credit (50) movement within the same
+        # January period, deliberately, to exercise net-only display.
         cls._post_entry(cls, "2024-01-05", [
             (cls.account_bank, 100, 0, None), (cls.account_income, 0, 100, None),
         ])
@@ -55,9 +57,12 @@ class TestFastTrialBalance(FastFinancialReportsCommon):
         accounts (no account/journal/partner filter narrowing the set to a
         partial view of any move), total opening debit must equal total
         opening credit, and total period debit must equal total period
-        credit. This is the classic "does the trial balance balance"
-        check, distinct from the per-account opening+debit-credit=closing
-        check above."""
+        credit. This still holds even though each line's own debit/credit
+        is now net-split (never both sides at once): summing net_i =
+        debit_i - credit_i over every account telescopes back to
+        (total gross debit) - (total gross credit), which is 0 for a
+        balanced ledger, so the positive and negative parts summed
+        separately are still equal."""
         wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31", show_zero=True)
         total_opening_debit = sum(wizard.line_ids.mapped("opening_debit"))
         total_opening_credit = sum(wizard.line_ids.mapped("opening_credit"))
@@ -66,20 +71,102 @@ class TestFastTrialBalance(FastFinancialReportsCommon):
         self.assertAlmostEqual(total_opening_debit, total_opening_credit, places=2)
         self.assertAlmostEqual(total_period_debit, total_period_credit, places=2)
 
-    def test_opening_period_closing_reconcile(self):
+    def test_opening_period_ending_reconcile(self):
         wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31")
         for line in wizard.line_ids:
-            self.assertAlmostEqual(
-                line.opening_balance + line.period_balance, line.ending_balance, places=2,
-            )
+            opening_net = line.opening_debit - line.opening_credit
+            period_net = line.period_debit - line.period_credit
+            ending_net = line.ending_debit - line.ending_credit
+            self.assertAlmostEqual(opening_net + period_net, ending_net, places=2)
 
     def test_opening_balance_carried_from_prior_year(self):
         wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31")
         bank_line = self._line_for(wizard, self.account_bank)
-        # 300 (2023) + 100 (2024-01-05) - 50 (2024-01-10) opening excludes 2024 moves
-        self.assertAlmostEqual(bank_line.opening_balance, 300.0, places=2)
-        self.assertAlmostEqual(bank_line.period_debit, 100.0, places=2)
-        self.assertAlmostEqual(bank_line.period_credit, 50.0, places=2)
+        # 300 (2023) + 100 (2024-01-05) - 50 (2024-01-10): opening excludes
+        # 2024 moves, so opening is 300 debit only.
+        self.assertAlmostEqual(bank_line.opening_debit, 300.0, places=2)
+        self.assertAlmostEqual(bank_line.opening_credit, 0.0, places=2)
+        # Period: gross 100 debit / 50 credit -> NET 50 debit, 0 credit.
+        self.assertAlmostEqual(bank_line.period_debit, 50.0, places=2)
+        self.assertAlmostEqual(bank_line.period_credit, 0.0, places=2)
+
+    # -- net-balance display rule (Opening/Period/Ending never both sides) --
+    def test_net_balance_never_shows_both_debit_and_credit_together(self):
+        """User-mandated rule: every Opening/Period/Ending balance must
+        show the NET balance only. The bank account has both a debit
+        (100) and a credit (50) movement within the same period; the
+        report must show Debit=50 / Credit=0, never Debit=100 AND
+        Credit=50 together."""
+        wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31", show_zero=True)
+        bank_line = self._line_for(wizard, self.account_bank)
+        self.assertAlmostEqual(bank_line.period_debit, 50.0, places=2)
+        self.assertAlmostEqual(bank_line.period_credit, 0.0, places=2)
+        for line in wizard.line_ids:
+            self.assertTrue(
+                line.opening_debit == 0.0 or line.opening_credit == 0.0,
+                "opening_debit and opening_credit must never both be non-zero (account %s)" % line.account_code,
+            )
+            self.assertTrue(
+                line.period_debit == 0.0 or line.period_credit == 0.0,
+                "period_debit and period_credit must never both be non-zero (account %s)" % line.account_code,
+            )
+            self.assertTrue(
+                line.ending_debit == 0.0 or line.ending_credit == 0.0,
+                "ending_debit and ending_credit must never both be non-zero (account %s)" % line.account_code,
+            )
+
+    def test_net_balance_debit_heavy_bucket_shows_debit_only(self):
+        """Explicit worked example matching the requirement: gross debit
+        10,000 / credit 7,000 in the same period must display as
+        Debit=3,000 / Credit=0, never both gross amounts."""
+        net_account = self.env["account.account"].create({
+            "code": "TSTNET1", "name": "FFR Net Split Debit Heavy", "account_type": "asset_cash",
+        })
+        self._post_entry("2024-05-01", [
+            (net_account, 10000, 0, None), (self.account_income, 0, 10000, None),
+        ])
+        self._post_entry("2024-05-02", [
+            (net_account, 0, 7000, None), (self.account_expense, 7000, 0, None),
+        ])
+        wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31")
+        line = self._line_for(wizard, net_account)
+        self.assertAlmostEqual(line.period_debit, 3000.0, places=2)
+        self.assertAlmostEqual(line.period_credit, 0.0, places=2)
+
+    def test_net_balance_credit_heavy_bucket_shows_credit_only(self):
+        """Same rule, opposite sign: gross debit 7,000 / credit 10,000
+        must display as Debit=0 / Credit=3,000."""
+        net_account = self.env["account.account"].create({
+            "code": "TSTNET2", "name": "FFR Net Split Credit Heavy", "account_type": "asset_cash",
+        })
+        self._post_entry("2024-07-01", [
+            (net_account, 7000, 0, None), (self.account_income, 0, 7000, None),
+        ])
+        self._post_entry("2024-07-02", [
+            (net_account, 0, 10000, None), (self.account_expense, 10000, 0, None),
+        ])
+        wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31")
+        line = self._line_for(wizard, net_account)
+        self.assertAlmostEqual(line.period_debit, 0.0, places=2)
+        self.assertAlmostEqual(line.period_credit, 3000.0, places=2)
+
+    def test_net_balance_opening_credit_heavy_shows_credit_only(self):
+        """The same net-only rule applies to the Opening bucket, not just
+        Period: an account whose activity BEFORE date_from nets to a
+        credit balance must show Opening Credit only."""
+        net_account = self.env["account.account"].create({
+            "code": "TSTNET3", "name": "FFR Net Split Opening Credit Heavy", "account_type": "asset_cash",
+        })
+        self._post_entry("2023-01-01", [
+            (net_account, 4000, 0, None), (self.account_income, 0, 4000, None),
+        ])
+        self._post_entry("2023-02-01", [
+            (net_account, 0, 9000, None), (self.account_expense, 9000, 0, None),
+        ])
+        wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31")
+        line = self._line_for(wizard, net_account)
+        self.assertAlmostEqual(line.opening_debit, 0.0, places=2)
+        self.assertAlmostEqual(line.opening_credit, 5000.0, places=2)
 
     # -- date range coverage ---------------------------------------------
     def test_one_day_range(self):
@@ -96,8 +183,9 @@ class TestFastTrialBalance(FastFinancialReportsCommon):
     def test_one_month_range(self):
         wizard = self._generate(date_from="2024-01-01", date_to="2024-01-31")
         bank_line = self._line_for(wizard, self.account_bank)
-        self.assertAlmostEqual(bank_line.period_debit, 100.0, places=2)
-        self.assertAlmostEqual(bank_line.period_credit, 50.0, places=2)
+        # Gross 100 debit / 50 credit within January -> NET 50 debit.
+        self.assertAlmostEqual(bank_line.period_debit, 50.0, places=2)
+        self.assertAlmostEqual(bank_line.period_credit, 0.0, places=2)
 
     def test_one_year_range(self):
         wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31")
@@ -107,8 +195,11 @@ class TestFastTrialBalance(FastFinancialReportsCommon):
     def test_multi_year_range(self):
         wizard = self._generate(date_from="2023-01-01", date_to="2025-12-31")
         bank_line = self._line_for(wizard, self.account_bank)
-        self.assertAlmostEqual(bank_line.opening_balance, 0.0, places=2)
-        self.assertAlmostEqual(bank_line.period_debit, 420.0, places=2)  # 300+100+20
+        self.assertAlmostEqual(bank_line.opening_debit, 0.0, places=2)
+        self.assertAlmostEqual(bank_line.opening_credit, 0.0, places=2)
+        # Gross 420 debit / 50 credit across 2023-2025 -> NET 370 debit.
+        self.assertAlmostEqual(bank_line.period_debit, 370.0, places=2)
+        self.assertAlmostEqual(bank_line.period_credit, 0.0, places=2)
 
     def test_future_period_has_no_period_movement(self):
         # Opening balances still carry forward (correct trial-balance
@@ -193,7 +284,9 @@ class TestFastTrialBalance(FastFinancialReportsCommon):
     def test_posted_only_false_includes_draft(self):
         wizard = self._generate(date_from="2024-01-01", date_to="2024-12-31", posted_only=False)
         bank_line = self._line_for(wizard, self.account_bank)
-        self.assertAlmostEqual(bank_line.period_debit, 100.0 + 9999.0, places=2)
+        # Gross debit 100+9999=10099, credit 50 -> NET 10049 debit.
+        self.assertAlmostEqual(bank_line.period_debit, 10049.0, places=2)
+        self.assertAlmostEqual(bank_line.period_credit, 0.0, places=2)
 
     def test_show_zero_accounts(self):
         # A dedicated account with zero everywhere in-range.

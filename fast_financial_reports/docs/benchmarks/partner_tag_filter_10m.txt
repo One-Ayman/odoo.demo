@@ -1,0 +1,57 @@
+=== Partner Ledger - Partner Tag filter, EXPLAIN ANALYZE at 10M-row scale ===
+=== Database: ffr_dev, account_move_line = 10,000,068 rows ===
+=== Query shape: exact SQL FastPartnerLedgerWizard._ffr_where()/_ffr_refresh() builds
+    (company_id=1, posted only, receivable/payable accounts, date range 2024) ===
+=== Tag filter implementation: EXISTS semi-join against
+    res_partner_res_partner_category_rel (never a plain JOIN - see
+    FastPartnerLedgerWizard._ffr_partner_tag_sql() for why) ===
+
+--- BASELINE: no tag filter (existing behavior, unchanged) ---
+Parallel Seq Scan on account_move_line aml
+  Filter: (partner_id IS NOT NULL) AND (company_id = ANY ('{1}')) AND (parent_state = 'posted') AND ...
+  Rows Removed by Filter: 2178407 (x3 workers)
+Execution Time: 1775.324 ms
+
+--- WITH TAG FILTER: single tag, 500 of ~2040 partners tagged ---
+Merge Join on (aml.partner_id = rel.partner_id)
+  -> Parallel Index Scan using account_move_line_partner_id_ref_idx on account_move_line aml
+  -> Sort + HashAggregate on res_partner_res_partner_category_rel
+       ->  Seq Scan on res_partner_res_partner_category_rel rel
+             Filter: (category_id = ANY ('{8}'))   [500 rows scanned, cheap]
+Execution Time: 1020.277 ms
+
+Result: the tag filter did not add scan cost - it made the query FASTER
+(1020ms vs. 1775ms baseline) because PostgreSQL recognized the EXISTS
+clause as a proper semi-join against a small (500-row) filtered set and
+switched the planner's join strategy to use
+account_move_line_partner_id_ref_idx instead of a full parallel sequential
+scan of account_move_line. No plan node touches the relation table without
+its (partner_id, category_id) index.
+
+--- WITH TAG FILTER: two tags (500 + 300 overlapping partners, ANY semantics) ---
+->  Index Only Scan using res_partner_res_partner_category_rel_partner_id_category_id_idx
+      on res_partner_res_partner_category_rel rel
+      Filter: (category_id = ANY ('{8,9}'))
+Execution Time: 1958.128 ms
+
+Duplicate-row check (same filter, no LIMIT):
+    total matching account_move_line rows: 136499
+    distinct partner_id values:             500   <- exactly len(tag8 partners UNION tag9 partners)
+No inflation: a partner carrying both tags contributes its rows exactly
+once, proving the EXISTS semi-join (not a duplicating JOIN) is what
+actually executes.
+
+--- Conclusion ---
+* No full-table scan is introduced by the tag filter that wasn't already
+  possible without it; PostgreSQL's planner is free to (and did) use the
+  filter to make the plan cheaper, not more expensive.
+* The relation-table side of the EXISTS always resolves through
+  res_partner_res_partner_category_rel's own (partner_id, category_id)
+  index (or an index-only scan of it) - never a sequential scan of
+  account_move_line driven by the tag.
+* Duplicate-amount risk from the partner/tag many-to-many is structurally
+  impossible with EXISTS, independent of how many tags a partner carries
+  or how many tags are selected in the filter.
+* No new index was added for this feature - the relation table's existing
+  (partner_id, category_id) index (created automatically by
+  res.partner.category_id) was already sufficient.

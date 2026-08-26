@@ -7,24 +7,29 @@ from odoo.http import request
 
 #: Odoo model + column headers for each exportable report. Columns must be
 #: the exact aliases used by each wizard's ``_ffr_export_sql()``.
+#:
+#: Every Opening/Period/Ending (or Closing) balance is the already
+#: net-split Debit/Credit pair the SQL computes (see
+#: ``FastReportSqlMixin._ffr_net_split_sql``) - never a combined
+#: "Balance" column and never an "Entry Count"/"Number of Entries"
+#: column anywhere in this module.
 _EXPORT_SPECS = {
     "trial_balance": (
         "fast.trial.balance.wizard",
         [
             ("account_code", "Account Code"), ("account_name", "Account Name"),
             ("opening_debit", "Opening Debit"), ("opening_credit", "Opening Credit"),
-            ("opening_balance", "Opening Balance"),
             ("period_debit", "Period Debit"), ("period_credit", "Period Credit"),
-            ("period_balance", "Period Balance"), ("ending_balance", "Ending Balance"),
+            ("ending_debit", "Ending Debit"), ("ending_credit", "Ending Credit"),
         ],
     ),
     "general_ledger": (
         "fast.general.ledger.wizard",
         [
             ("account_code", "Account Code"), ("account_name", "Account Name"),
-            ("opening_balance", "Opening Balance"),
-            ("period_debit", "Debit"), ("period_credit", "Credit"),
-            ("closing_balance", "Closing Balance"), ("entry_count", "Entry Count"),
+            ("opening_debit", "Opening Debit"), ("opening_credit", "Opening Credit"),
+            ("period_debit", "Period Debit"), ("period_credit", "Period Credit"),
+            ("ending_debit", "Ending Debit"), ("ending_credit", "Ending Credit"),
         ],
     ),
     "partner_ledger": (
@@ -32,9 +37,8 @@ _EXPORT_SPECS = {
         [
             ("partner_name", "Partner"),
             ("opening_debit", "Opening Debit"), ("opening_credit", "Opening Credit"),
-            ("opening_balance", "Opening Balance"),
             ("period_debit", "Period Debit"), ("period_credit", "Period Credit"),
-            ("closing_balance", "Closing Balance"), ("entry_count", "Entry Count"),
+            ("closing_debit", "Closing Debit"), ("closing_credit", "Closing Credit"),
         ],
     ),
 }

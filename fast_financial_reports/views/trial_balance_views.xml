@@ -50,11 +50,10 @@
                         <field name="account_name"/>
                         <field name="opening_debit" sum="Total"/>
                         <field name="opening_credit" sum="Total"/>
-                        <field name="opening_balance" sum="Total"/>
                         <field name="period_debit" sum="Total"/>
                         <field name="period_credit" sum="Total"/>
-                        <field name="period_balance" sum="Total"/>
-                        <field name="ending_balance" sum="Total"/>
+                        <field name="ending_debit" sum="Total"/>
+                        <field name="ending_credit" sum="Total"/>
                     </tree>
                 </field>
                 <field name="generated" invisible="1"/>

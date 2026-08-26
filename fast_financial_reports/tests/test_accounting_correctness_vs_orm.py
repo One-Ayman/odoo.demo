@@ -13,10 +13,23 @@ independent ground truth available in a Community-only environment, and it
 exercises a genuinely different code path (ORM query building instead of
 this module's hand-written SQL) so any bug in the SQL that produced a wrong
 number would very likely disagree with it.
+
+Every Opening/Period/Ending (or Closing) balance the module shows is a NET
+balance, sign-split back into Debit/Credit (never the two gross movements
+shown together) - see wizard/*.py and models/ffr_sql_mixin.py
+(_ffr_net_split_sql). ``_net_split()`` below reproduces that same
+sign-split arithmetic *independently* in plain Python against the ORM's raw
+gross sums, so the comparison stays apples-to-apples without reusing any of
+the module's own SQL.
 """
 from odoo.tests import tagged
 
 from .common import FastFinancialReportsCommon
+
+
+def _net_split(debit, credit):
+    net = (debit or 0.0) - (credit or 0.0)
+    return (net, 0.0) if net > 0 else (0.0, -net)
 
 
 @tagged("post_install", "-at_install", "fast_financial_reports")
@@ -82,19 +95,21 @@ class TestAccountingCorrectnessVsOrm(FastFinancialReportsCommon):
             orm_period_debit, orm_period_credit = self._orm_balance(
                 line.account_id, [("date", ">=", "2024-01-01"), ("date", "<=", "2024-12-31")],
             )
-            self.assertAlmostEqual(line.opening_debit, orm_opening_debit, places=2,
+            net_opening_debit, net_opening_credit = _net_split(orm_opening_debit, orm_opening_credit)
+            net_period_debit, net_period_credit = _net_split(orm_period_debit, orm_period_credit)
+            self.assertAlmostEqual(line.opening_debit, net_opening_debit, places=2,
                                     msg="opening_debit mismatch for %s" % line.account_code)
-            self.assertAlmostEqual(line.opening_credit, orm_opening_credit, places=2,
+            self.assertAlmostEqual(line.opening_credit, net_opening_credit, places=2,
                                     msg="opening_credit mismatch for %s" % line.account_code)
-            self.assertAlmostEqual(line.period_debit, orm_period_debit, places=2,
+            self.assertAlmostEqual(line.period_debit, net_period_debit, places=2,
                                     msg="period_debit mismatch for %s" % line.account_code)
-            self.assertAlmostEqual(line.period_credit, orm_period_credit, places=2,
+            self.assertAlmostEqual(line.period_credit, net_period_credit, places=2,
                                     msg="period_credit mismatch for %s" % line.account_code)
-            # Opening + Debit - Credit = Closing, the spec's own formula.
-            self.assertAlmostEqual(
-                line.opening_balance + line.period_debit - line.period_credit,
-                line.ending_balance, places=2,
-            )
+            # Opening + Period = Ending, all net.
+            opening_net = line.opening_debit - line.opening_credit
+            period_net = line.period_debit - line.period_credit
+            ending_net = line.ending_debit - line.ending_credit
+            self.assertAlmostEqual(opening_net + period_net, ending_net, places=2)
 
     def test_general_ledger_matches_orm_read_group(self):
         wizard = self.env["fast.general.ledger.wizard"].create({
@@ -107,18 +122,21 @@ class TestAccountingCorrectnessVsOrm(FastFinancialReportsCommon):
             orm_opening_debit, orm_opening_credit = self._orm_balance(
                 line.account_id, [("date", "<", "2024-01-01")],
             )
-            orm_opening = orm_opening_debit - orm_opening_credit
             orm_period_debit, orm_period_credit = self._orm_balance(
                 line.account_id, [("date", ">=", "2024-01-01"), ("date", "<=", "2024-12-31")],
             )
-            self.assertAlmostEqual(line.opening_balance, orm_opening, places=2,
-                                    msg="opening_balance mismatch for %s" % line.account_code)
-            self.assertAlmostEqual(line.period_debit, orm_period_debit, places=2)
-            self.assertAlmostEqual(line.period_credit, orm_period_credit, places=2)
-            self.assertAlmostEqual(
-                line.opening_balance + line.period_debit - line.period_credit,
-                line.closing_balance, places=2,
-            )
+            net_opening_debit, net_opening_credit = _net_split(orm_opening_debit, orm_opening_credit)
+            net_period_debit, net_period_credit = _net_split(orm_period_debit, orm_period_credit)
+            self.assertAlmostEqual(line.opening_debit, net_opening_debit, places=2,
+                                    msg="opening_debit mismatch for %s" % line.account_code)
+            self.assertAlmostEqual(line.opening_credit, net_opening_credit, places=2,
+                                    msg="opening_credit mismatch for %s" % line.account_code)
+            self.assertAlmostEqual(line.period_debit, net_period_debit, places=2)
+            self.assertAlmostEqual(line.period_credit, net_period_credit, places=2)
+            opening_net = line.opening_debit - line.opening_credit
+            period_net = line.period_debit - line.period_credit
+            ending_net = line.ending_debit - line.ending_credit
+            self.assertAlmostEqual(opening_net + period_net, ending_net, places=2)
 
     def test_general_ledger_draft_excluded_matches_orm(self):
         wizard = self.env["fast.general.ledger.wizard"].create({
@@ -131,10 +149,11 @@ class TestAccountingCorrectnessVsOrm(FastFinancialReportsCommon):
             self.account_bank, [("date", ">=", "2024-01-01"), ("date", "<=", "2024-12-31")],
             posted_only=True,
         )
+        net_debit, net_credit = _net_split(orm_debit, orm_credit)
         # The 4321 draft entry must be excluded from both sides alike.
         self.assertNotAlmostEqual(bank_line.period_debit, 100.0 + 4321.0, places=2)
-        self.assertAlmostEqual(bank_line.period_debit, orm_debit, places=2)
-        self.assertAlmostEqual(bank_line.period_credit, orm_credit, places=2)
+        self.assertAlmostEqual(bank_line.period_debit, net_debit, places=2)
+        self.assertAlmostEqual(bank_line.period_credit, net_credit, places=2)
 
     def test_partner_ledger_matches_orm_read_group(self):
         wizard = self.env["fast.partner.ledger.wizard"].create({
@@ -165,22 +184,27 @@ class TestAccountingCorrectnessVsOrm(FastFinancialReportsCommon):
             orm_opening_credit = opening[0]["credit"] if opening else 0.0
             orm_period_debit = period[0]["debit"] if period else 0.0
             orm_period_credit = period[0]["credit"] if period else 0.0
+            net_opening_debit, net_opening_credit = _net_split(orm_opening_debit, orm_opening_credit)
+            net_period_debit, net_period_credit = _net_split(orm_period_debit, orm_period_credit)
 
-            self.assertAlmostEqual(line.opening_debit, orm_opening_debit, places=2,
+            self.assertAlmostEqual(line.opening_debit, net_opening_debit, places=2,
                                     msg="opening_debit mismatch for partner %s" % line.partner_name)
-            self.assertAlmostEqual(line.opening_credit, orm_opening_credit, places=2)
-            self.assertAlmostEqual(line.period_debit, orm_period_debit, places=2)
-            self.assertAlmostEqual(line.period_credit, orm_period_credit, places=2)
-            opening_balance = orm_opening_debit - orm_opening_credit
-            self.assertAlmostEqual(
-                opening_balance + line.period_debit - line.period_credit,
-                line.closing_balance, places=2,
-            )
+            self.assertAlmostEqual(line.opening_credit, net_opening_credit, places=2)
+            self.assertAlmostEqual(line.period_debit, net_period_debit, places=2)
+            self.assertAlmostEqual(line.period_credit, net_period_credit, places=2)
+            opening_net = line.opening_debit - line.opening_credit
+            period_net = line.period_debit - line.period_credit
+            closing_net = line.closing_debit - line.closing_credit
+            self.assertAlmostEqual(opening_net + period_net, closing_net, places=2)
 
     def test_general_ledger_detail_lines_match_orm_total(self):
         """Sum of the (lazily loaded) transaction detail for one account
         must equal the ORM-computed period debit/credit for that account -
-        proving the drill-down query and the summary query agree."""
+        proving the drill-down query and the summary query agree. The
+        detail lines are individual transactions, not an
+        Opening/Period/Ending bucket, so they stay gross (a transaction
+        is inherently one-sided already) - the net-only rule does not
+        apply here."""
         wizard = self.env["fast.general.ledger.wizard"].create({
             "date_from": "2024-01-01", "date_to": "2024-12-31",
             "company_ids": [(6, 0, [self.company.id])],
