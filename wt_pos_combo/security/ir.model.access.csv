@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+wt_pos_combo.access_pos_combo,access_wt_pos_combo,wt_pos_combo.model_wt_pos_combo,point_of_sale.group_pos_user,1,1,1,1
+wt_pos_combo.access_pos_combo_item,access_pos_combo_item,wt_pos_combo.model_pos_combo_item,point_of_sale.group_pos_user,1,1,1,1
+wt_pos_combo.access_pos_order_line_combo_items,access_pos_order_line_combo_items,wt_pos_combo.model_pos_order_line_combo_items,point_of_sale.group_pos_user,1,1,1,1
+wt_pos_combo.access_combo_items_wizard,access_combo_items_wizard,wt_pos_combo.model_combo_items_wizard,,1,1,1,1

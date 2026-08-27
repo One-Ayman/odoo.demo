@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+	<t t-name="wt_pos_combo.WtPosComboConfigurePopup">
+	    <div class="popup pos_combo_configure_popup" >
+            <main class="modal-body col-lg-12 col-md-12 col-sm-12 hight-100">
+            	<div class="d-flex" style="max-height:530px;">
+            		<div class="pos_combo_cart_item">
+            			<h4 class="combo_cart_title">COMBO CART</h4>
+            			<div class="cart_box_combo">
+                			<ul>
+                                <t t-foreach="combo_cat_items" t-as="line" t-key="line.id">
+                                    <t t-if="combo_lines[line.category_id[0]]">
+                                        <li class="cate_name">
+                                            <t t-esc="line.category_id[1]"/>
+                                        </li>
+                                        <t t-if="combo_lines != undefined">
+                                            <t t-foreach="combo_lines[line.category_id[0]]" t-as="pro_obj" t-key="pro_obj_index">
+                                                <li class="product_name_combo_cl">
+                                                    <div class="cart_p_001">
+                                                        <div class="cart_p_002">
+                                                            <span class="cart_p_003" t-esc="pro_obj.product.display_name"/><br/>
+                                                            <div class="combo_cart_price_info">
+                                                                <span class="cart_p_004" t-esc="pro_obj.price"/> X <span t-esc="pro_obj.qty"/> 
+                                                            </div>
+                                                        </div>
+                                                        <div class="cart_p_005">
+                                                            <span class="cart_p_006" t-esc="pro_obj.total_price"/>
+                                                        </div>
+                                                    </div>
+                                                </li>
+                                            </t>
+                                        </t>
+                                    </t>
+                                </t>
+                                <li class="main_combo_item_totals" t-if="combo_lines.length != 0">
+                                    <div class="main_product_total_cl">
+                                        <span class="main_product_total_cl_001" t-esc="props.product.display_name"/>:
+                                        <span class="main_product_total_cl_002" t-esc="props.product.getFormattedUnitPrice()"/>
+                                    </div>
+                                </li>
+                                <li class="combo_item_totals" t-if="combo_lines.length != 0">
+                                    ITEMS TOTAL : <span class="combo_itm_total" t-esc="combo_items_totals"/>
+                                </li>
+                                <li class="combo_main_total" t-if="combo_lines.length != 0">
+                                    TOTAL : <span t-esc="total_main_plus_item"/>
+                                </li>
+                			</ul>
+                		</div>
+                		<div class="cart_box_combo_controll d-flex">
+                            <div t-if="!is_required" class="button highlight confirm" t-on-click="cancel">
+                                Discard
+                            </div>
+			                <div class="button highlight confirm" t-on-click="confirm">
+			                    Apply
+			                </div>
+			            </div>
+            		</div>
+            		<PosComboItemDetails product="props.product" combo="combo_info" combo_cat_items="combo_cat_items" check_is_max="check_is_max" onProductRemoveClick.bind="onProductRemoveClick" combo_lines="combo_lines" OnSelectComboProduct.bind="OnSelectComboProduct" onProductMinusClick.bind="onProductMinusClick" onchangeProductAttr.bind="onchangeProductAttr" add_selection_items.bind="add_selection_items" remove_selection_items.bind="remove_selection_items"/>
+            	</div>
+            </main>
+        </div>
+    </t>
+
+    <t t-name="wt_pos_combo.PosComboItemDetails">
+        <div class="pos_combo_item_details">
+            <h4 class="combo_item_cart_title"><t t-esc="props.combo.name" /></h4>
+            <div class="combo_pack_box">
+                <ul>
+                    <t t-foreach="props.combo_cat_items" t-as="combo_cat" t-key="combo_cat.id">
+                        <li t-if="combo_cat.category_id[0] != 77" t-att-class="{active : combo_cat_index == 0}" t-att-data-pos_combo_cate_id="combo_cat.id" t-on-click="select_categories"><t t-esc="combo_cat.category_id[1]"/></li>
+                    </t>
+                </ul>
+            </div>
+            <t t-foreach="props.combo_cat_items" t-as="combo_cat_obj" t-key="combo_cat_obj.id">
+                <ComboCatProducts combo_cat_obj="combo_cat_obj" combo_cat_index="combo_cat_obj_index" combo="props.combo" check_is_max="props.check_is_max" combo_lines="props.combo_lines" onProductRemoveClick.bind="props.onProductRemoveClick" OnSelectComboProduct.bind="props.OnSelectComboProduct" onProductMinusClick.bind="props.onProductMinusClick" onchangeProductAttr.bind="props.onchangeProductAttr" add_selection_items.bind="props.add_selection_items" remove_selection_items.bind="props.remove_selection_items"/>
+            </t>
+        </div>
+    </t>
+
+    <t t-name="wt_pos_combo.ComboCatProducts" >
+        <div style="max-height: 100%; overflow-x: hidden; overflow-y: scroll;">
+            <div class="product_display_block_combo" t-att-class="{active : props.combo_cat_index == 0}" t-att-data-pos_combo_cate_id="props.combo_cat_obj.id">
+                <t t-foreach="combo_product_items" t-as="pos_com_product_item" t-key="pos_com_product_item.id">
+                    <PosComboProductItem product="pos_com_product_item" combo_cat_obj="props.combo_cat_obj" combo="props.combo" check_is_max="props.check_is_max" combo_lines="props.combo_lines" onProductRemoveClick.bind="props.onProductRemoveClick" OnSelectComboProduct.bind="props.OnSelectComboProduct" onProductMinusClick.bind="props.onProductMinusClick" onchangeProductAttr.bind="props.onchangeProductAttr" add_selection_items.bind="props.add_selection_items" remove_selection_items.bind="props.remove_selection_items"/>
+                </t>
+            </div>
+        </div>
+    </t>
+
+    <t t-name="wt_pos_combo.PosComboProductItem">
+        <t t-set="ComboProductItemKey" t-value="props.combo_cat_obj.id + '_' + props.combo_cat_obj.category_id[0] + '_' + props.product.id"/>
+        <article class="product" tabindex="0" t-att-class="select_item"  t-att-data-product_id="props.product.id" t-att-data-combo_cat_obj="props.combo_cat_obj.id" t-att-data-category_id="props.combo_cat_obj.category_id[0]" t-att-data-qty="select_qty" t-att-data-product_for_find_id="props.product.id" t-on-click.stop="" data-combo-click="true" t-att-data-combo_item_key="ComboProductItemKey">
+            <!-- >>><t t-esc="ComboProductItemKey"/> -->
+            <t t-if="props.product.combo_product_attribute_ids.length">
+                <t t-if="props.product.menu_type_selection == 'drop_down'">
+                    <div class="product-img">
+                        <img t-att-src="imageUrl" t-att-alt="props.product.display_name" />
+                        
+                    </div>
+                    <select id="combo_product_attribute_ids" t-att-data-product_id="props.product.id" t-on-click.stop="() => props.onchangeProductAttr(ComboProductItemKey)">
+                        <option class="c_p_op" value="">select..</option>
+                        <t t-foreach="combo_product_attribute" t-as="combo_attribute_id" t-key="combo_attribute_id.id">
+                             <option t-att-value="combo_attribute_id.id">
+                                <div class="c_p_op">
+                                    <t t-esc="combo_attribute_id.display_name" />: 
+                                    <span class="price-tag">
+                                        <t t-esc="combo_attribute_id.getFormattedUnitPrice()"/>
+                                    </span>
+                                </div>
+                            </option>
+                        </t>
+                    </select>
+                    <div class="product-name" t-attf-id="article_product_{{props.product.id}}">
+                        <t t-esc="props.product.display_name" />:
+                        <t t-esc="select_product_name"/>
+                    </div>
+                </t>
+                <t t-if="props.product.menu_type_selection == 'plus_minus'">
+                    <div class="product-img">
+                        <t t-if="props.product.is_only_single">
+                            <i role="img" aria-label="Remove" title="Remove" class="product_remove_button fa fa-trash" data-combo-click="true"
+                                t-on-click.stop="() => props.onProductRemoveClick(ComboProductItemKey)"
+                            />
+                        </t>
+                        <t t-if="!props.product.is_only_single">
+                            <i role="img" aria-label="Remove" title="Remove" class="product_plus_button fa fa-plus" t-att-data-product_id="props.product.id"
+                                t-on-click.stop="() => props.add_selection_items(ComboProductItemKey)" data-prods=""
+                            />
+                            <i role="img" aria-label="Remove" title="Remove" class="product_minus_button fa fa-minus" t-att-data-product_id="props.product.id"
+                                t-on-click.stop="() => props.remove_selection_items(ComboProductItemKey)"
+                            />
+                        </t>
+                        <img t-att-src="imageUrl" t-att-alt="props.product.display_name" />
+                        <span class="price-tag">
+                            <t t-esc="combo_product_attribute[0].getFormattedUnitPrice()"/>
+                        </span>
+                    </div>
+                    <div class="product-name" t-attf-id="article_product_{{props.product.id}}">
+                        <t t-esc="props.product.display_name" /><t t-if="select_product_name">:</t>
+                        <t t-esc="select_product_name"/>
+                    </div>
+                </t>
+            </t>
+            <t t-else="">
+                <div class="product-img product_plus_buttons" t-att-data-product_id="props.product.id" t-on-click.stop="() => props.OnSelectComboProduct(ComboProductItemKey)">
+                    <t t-if="props.product.is_only_single">
+                        <i role="img" data-combo-click="true" aria-label="Remove" title="Remove" class="product_remove_button fa fa-trash"
+                            t-on-click.stop="() => props.onProductRemoveClick(ComboProductItemKey)"
+                        />
+                    </t>
+                    <t t-if="!props.product.is_only_single">
+                        <i role="img" aria-label="Remove" title="Remove" class="product_plus_button fa fa-plus" t-att-data-product_id="props.product.id"
+                            t-on-click.stop="() => props.OnSelectComboProduct(ComboProductItemKey)"
+                        />
+                        <i role="img" aria-label="Remove" title="Remove" class="product_minus_button fa fa-minus" t-att-data-product_id="props.product.id"
+                            t-on-click.stop="() => props.onProductMinusClick(ComboProductItemKey)"
+                        />
+                    </t>
+                    <img t-att-src="imageUrl" t-att-alt="props.product.display_name" />
+                    <span class="price-tag">
+                        <t t-esc="props.product.getFormattedUnitPrice()" />
+                    </span>
+                    <span class="combo_item_qty_cl">
+                        Qty:<span class="qty_text">
+                            <t t-esc="select_qty"/>
+                        </span> 
+                    </span>
+                </div>
+                <div class="product-name" t-attf-id="article_product_{{props.product.id}}">
+                    <t t-esc="props.product.display_name" />
+                </div>
+            </t>
+        </article>
+    </t>
+</templates>

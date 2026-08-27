@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="wt_pos_combo.Orderline" t-inherit="point_of_sale.Orderline" t-inherit-mode="extension">
+        <xpath expr="//li/ul[hasclass('info-list')]" position="after">
+            <t t-if="line.is_combo_product">
+                <li class="info combo_order_lines">
+                    <div t-foreach="line.combo_lines" t-as="combo_line" t-key="combo_line">
+                        <t t-set="combo_lines" t-value="line.combo_lines[combo_line]"/>
+                        <t t-if="combo_lines.length != 0">
+                            <div t-if="line.combo_category_data[combo_line]" class="combo_cat_title">
+                                <t t-esc="line.combo_category_data[combo_line].name"/>
+                            </div>
+
+                            <t t-foreach="combo_lines" t-as="combo_item" t-key="combo_item_index">
+                                <div class="combo_product_info">
+                                    <!-- <t t-esc="combo_item"/> -->
+                                    <t t-esc="combo_item.product_name"/>
+                                     :<span class="combo_product_info_002" t-esc="combo_item.qty"/>
+                                </div>
+                            </t>
+                        </t>
+                    </div>
+                </li>
+            </t>
+        </xpath>
+    </t>
+</templates>

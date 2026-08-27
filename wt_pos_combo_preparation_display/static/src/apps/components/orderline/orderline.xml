@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="wt_pos_combo_preparation_display.Orderline" t-inherit="pos_preparation_display.Orderline" t-inherit-mode="extension" owl="1">
+        <xpath expr="//section" position="inside">
+            <div>
+                <t t-set="combolines" t-value="this.getcombolines()"/>
+                <div class="ms-4 px-2 mb-1" t-foreach="combolines" t-as="combo_cat" t-key="combo_cat_index">
+                    <span class="text-primary" t-esc="combo_cat"/>
+                    <div class="ms-4 px-2 mb-1">
+                        <div t-foreach="combolines[combo_cat]" t-as="combo_data" t-key="combo_data_index">
+                            <t t-esc="combo_data"/>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </xpath>
+    </t>
+</templates>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+	<t t-name="OrderChangeReceipt" t-inherit="point_of_sale.OrderChangeReceipt" t-inherit-mode="extension">
+		<xpath expr="//t[@t-foreach='changes.cancelled']/t[@t-if='change.note']" position="after">
+			<t t-if="change.combo_items">
+                <t t-foreach="change.combo_items" t-as="combo_item" t-key="combo_item_index">
+                    <br/>
+                    <div t-esc="combo_item.category" class="receipt_combo_category"/>
+                    <t t-foreach="combo_item.items" t-as="pcm_item" t-key="pcm_item_index">
+                        <div class="receipt_pos_combo_item">
+                            <span t-esc="pcm_item.item_name"/>  X  
+                            <span t-esc="pcm_item.item_qty"/>
+                        </div>
+                    </t>
+                </t>
+            </t>
+		</xpath>
+		<xpath expr="//t[@t-foreach='changes.new']/t[@t-if='change.note']" position="after">
+			<t t-if="change.combo_items">
+	            <t t-foreach="change.combo_items" t-as="combo_item" t-key="combo_item_index">
+	                <div t-esc="combo_item.category" class="receipt_combo_category"/>
+	                <t t-foreach="combo_item.items" t-as="pcm_item" t-key="pcm_item_index">
+	                    <div class="receipt_pos_combo_item">
+	                        <span t-esc="pcm_item.item_name"/>  X  
+	                        <span t-esc="pcm_item.item_qty"/>
+	                    </div>
+	                </t>
+	                <br/>
+	            </t>
+	        </t>
+		</xpath>
+	</t>
+</templates>

@@ -1,0 +1,21 @@
+body .pos-customer_facing_display .pos-customer_products .pos_orderlines .pos_orderlines_list .pos_orderlines_item{
+	flex-wrap: wrap;
+}
+body .pos-customer_facing_display .pos-customer_products .pos_orderlines .pos_orderlines_list .pos_orderlines_item .combo_lines_customer_display{
+	    width: 100%;
+}
+body .pos-customer_facing_display .pos-customer_products .pos_orderlines .pos_orderlines_list .pos_orderlines_item .combo_lines_customer_display div{
+	padding-top: 0px;
+}
+body .pos-customer_facing_display .pos-customer_products .pos_orderlines .pos_orderlines_list .pos_orderlines_item .combo_lines_customer_display div.receipt_combo_category{
+	color: #875a7b;
+    padding-top: 8px;
+    font-size: 14px;
+}
+body .pos-customer_facing_display .pos-customer_products .pos_orderlines .pos_orderlines_list .pos_orderlines_item .combo_lines_customer_display div.receipt_pos_combo_item{
+	    font-weight: normal;
+    font-size: 10px;
+}
+body .pos-customer_facing_display .pos_orderlines .pos_orderlines_item > div:nth-child(4){
+	margin-right: 0px;
+}
