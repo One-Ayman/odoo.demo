@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16
+    container_name: DevCourse_db
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+    volumes:
+      - devcourse_db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  odoo:
+    image: odoo:19
+    container_name: DevCourse
+    depends_on:
+      - db
+    ports:
+      - "8060:8069"
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo
+    volumes:
+      - devcourse_odoo_data:/var/lib/odoo
+      - ./config/odoo.conf:/etc/odoo/odoo.conf
+      - ../fleet_sales_core:/mnt/extra-addons/fleet_sales_core
+      - ../fleet_sales_field_ops:/mnt/extra-addons/fleet_sales_field_ops
+      - ../wt_pos_combo:/mnt/extra-addons/wt_pos_combo
+      - ../wt_pos_combo_preparation_display:/mnt/extra-addons/wt_pos_combo_preparation_display
+    restart: unless-stopped
+
+volumes:
+  devcourse_db_data:
+  devcourse_odoo_data:
